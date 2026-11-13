@@ -1,5 +1,6 @@
 import { $, $$, hide, show, split } from "./utils.js";
 import { translate } from "./translation.js";
+import { getCode, openPay } from "./pay.js";
 
 export function createAsuRequestBuilder(context) {
   const { config, progress, ofsVersion, getCurrentDevice, updateImages } =
@@ -116,6 +117,7 @@ export function createAsuRequestBuilder(context) {
       method: requestHash ? "GET" : "POST",
       headers: {
         "Content-Type": "application/json",
+        "X-LukeWrt-Code": getCode(),
       },
       body: requestHash ? null : JSON.stringify(buildBody),
     })
@@ -153,6 +155,7 @@ export function createAsuRequestBuilder(context) {
             break;
           default:
             response.json().then((mobj) => {
+              if (response.status === 402) openPay();
               if ("stderr" in mobj) {
                 $("#asu-stderr").innerText = mobj.stderr;
                 $("#asu-stdout").innerText = mobj.stdout;

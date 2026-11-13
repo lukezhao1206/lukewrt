@@ -1,14 +1,16 @@
 // LukeWrt Worker: serves the firmware selector, an ASU-compatible build API,
 // and built images from R2. Builds run on GitHub Actions.
+import { createOrder, orderStatus, handleNotify, checkCode, selfTest, PLANS } from "./pay.js";
 const DL = "https://downloads.openwrt.org";
 const JSONH = { "content-type": "application/json; charset=utf-8" };
 const CORS = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET, POST, OPTIONS",
-  "access-control-allow-headers": "content-type",
+  "access-control-allow-headers": "content-type, x-lukewrt-code",
 };
 const QUEUE_TIMEOUT_MS = 60 * 60 * 1000;
 const MAX_BUILDS_PER_HOUR = 6;
+const FREE_PER_DAY = 2;
 
 function json(obj, status = 200, extra = {}) {
   return new Response(JSON.stringify(obj), { status, headers: { ...JSONH, ...CORS, ...extra } });
@@ -131,13 +133,25 @@ async function build(req, env) {
     if (j.status !== "failed") return statusResponse(env, hash);
   }
   const ip = req.headers.get("cf-connecting-ip") || "unknown";
+  const code = (req.headers.get("x-lukewrt-code") || "").trim().toUpperCase();
   const rk = `rate:${ip}:${Math.floor(Date.now() / 3600000)}`;
   const n = parseInt((await env.JOBS.get(rk)) || "0", 10);
   if (n >= MAX_BUILDS_PER_HOUR) return json({ detail: "too many builds, try again in an hour" }, 429);
+  const dk = `free:${ip}:${Math.floor((Date.now() + 8 * 3600e3) / 86400e3)}`;
+  const used = parseInt((await env.JOBS.get(dk)) || "0", 10);
+  let paid = false;
+  if (used >= FREE_PER_DAY) {
+    const c = await checkCode(env, code, true);
+    if (!c.ok) return json({ detail: code ? "激活码无效或次数已用完，请购买" : `今日免费 ${FREE_PER_DAY} 次已用完，单次 3 元或永久 88 元可继续`, need_pay: true }, 402);
+    paid = true;
+  } else {
+    await env.JOBS.put(dk, String(used + 1), { expirationTtl: 90000 });
+  }
   await env.JOBS.put(rk, String(n + 1), { expirationTtl: 3700 });
   await env.JOBS.put(`req:${hash}`, JSON.stringify(clean), { expirationTtl: 7 * 86400 });
   await env.JOBS.put(`job:${hash}`, JSON.stringify({ status: "queued", created: Date.now() }), { expirationTtl: 30 * 86400 });
   try { await dispatch(env, hash); } catch (e) {
+    if (paid && code) { const raw = await env.JOBS.get(`code:${code}`); if (raw) { const c = JSON.parse(raw); if (c.credits >= 0) { c.credits += 1; await env.JOBS.put(`code:${code}`, JSON.stringify(c)); } } }
     await env.JOBS.put(`job:${hash}`, JSON.stringify({ status: "failed", created: Date.now(), detail: "could not start build" }), { expirationTtl: 3600 });
     return json({ detail: "could not start build", error: String(e.message) }, 500);
   }
@@ -165,6 +179,12 @@ async function internal(req, env, path, url) {
     await env.JOBS.put(`res:${m[1]}`, res, { expirationTtl: 30 * 86400 });
     await env.JOBS.put(`job:${m[1]}`, JSON.stringify({ status: "done", created: Date.now() }), { expirationTtl: 30 * 86400 });
     return json({ ok: true });
+  }
+  if (path === "/internal/setkey" && req.method === "POST") {
+    const k = (req.headers.get("x-alipay-key") || "").trim();
+    if (k.length < 500) return json({ detail: "no key" }, 400);
+    await env.JOBS.put("cfg:alipay_priv", k);
+    try { return json({ ok: await selfTest(env) }); } catch (e) { return json({ ok: false, error: String(e.message) }); }
   }
   const key = url.searchParams.get("key") || "";
   if (!/^(store|site|packages)\/[A-Za-z0-9._+\-\/]+$/.test(key) || key.includes("..")) return json({ detail: "bad key" }, 400);
@@ -200,6 +220,24 @@ export default {
       if (path === "/api/v1/build" && req.method === "POST") return await build(req, env);
       let m;
       if ((m = path.match(/^\/api\/v1\/build\/([0-9a-f]{32})$/))) return await statusResponse(env, m[1]);
+      if (path === "/api/pay/plans") return json({ free_per_day: FREE_PER_DAY, plans: Object.fromEntries(Object.entries(PLANS).map(([k, v]) => [k, v.amount])) });
+      if (path === "/api/pay/create" && req.method === "POST") {
+        let b = {}; try { b = await req.json(); } catch {}
+        const ip = req.headers.get("cf-connecting-ip") || "unknown";
+        const ok = `ordrate:${ip}:${Math.floor(Date.now() / 3600000)}`;
+        const on = parseInt((await env.JOBS.get(ok)) || "0", 10);
+        if (on >= 20) return json({ detail: "too many orders" }, 429);
+        await env.JOBS.put(ok, String(on + 1), { expirationTtl: 3700 });
+        const r = await createOrder(env, b.plan);
+        return json(r, r.error ? 502 : 200);
+      }
+      if ((m = path.match(/^\/api\/pay\/status\/(LW\d+[A-Z0-9]{4})$/))) return json(await orderStatus(env, m[1]));
+      if ((m = path.match(/^\/api\/pay\/code\/([A-Za-z0-9\-]{1,40})$/))) return json(await checkCode(env, m[1].toUpperCase(), false));
+      if (path === "/api/pay/notify" && req.method === "POST") {
+        const params = Object.fromEntries(new URLSearchParams(await req.text()));
+        const ok2 = await handleNotify(env, params);
+        return new Response(ok2 ? "success" : "fail", { headers: { "content-type": "text/plain" } });
+      }
       if (path === "/api/v1/overview" || path === "/api/v1/stats") return json({ server: "lukewrt" });
       if (path.startsWith("/dl/")) return await proxyDownloads(path.slice(3), req, ctx);
       if (path.startsWith("/store/")) {
