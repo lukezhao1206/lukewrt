@@ -24,6 +24,7 @@ PART = 50 * 1024 * 1024
 WORK = Path("work").resolve()
 BIN = WORK / "bin"
 FILES = WORK / "files"
+EXTRA = WORK / "extra"
 
 
 def call(method, path, data=None, ctype="application/json", raw=False):
@@ -72,6 +73,66 @@ def upload(path: Path, key: str):
             n += 1
     call("POST", f"/internal/mpu/complete?key={key}&uploadId={urllib.request.quote(up['uploadId'])}", parts)
 
+# ---- third-party feeds, enabled automatically by the packages requested ----
+PW = "https://master.dl.sourceforge.net/project/openwrt-passwall-build"
+PW_PKGS = {"luci-app-passwall", "luci-i18n-passwall-zh-cn", "luci-app-passwall2",
+           "luci-i18n-passwall2-zh-cn", "luci-i18n-passwall2-zh-tw", "chinadns-ng",
+           "dns2socks", "geoview", "hysteria", "ipt2socks", "microsocks", "naiveproxy",
+           "shadow-tls", "tcping", "simple-obfs-client", "v2ray-plugin", "xray-plugin",
+           "shadowsocksr-libev-ssr-local", "shadowsocksr-libev-ssr-redir",
+           "shadowsocks-rust-sslocal"}
+NIKKI_PKGS = {"nikki", "luci-app-nikki", "luci-i18n-nikki-zh-cn", "luci-i18n-nikki-zh-tw",
+              "mihomo-meta", "mihomo-alpha"}
+NEED_DNSMASQ_FULL = {"luci-app-passwall", "luci-app-passwall2", "luci-app-openclash"}
+KEYS = {
+    "passwall_ipk": "untrusted comment: OpenWRT usign key of dianlujitao\nRWQKvaZaSStIhx4t06ISyV42CIpK7niKfR+Yro/WHiKLa122SEh2j3Z4\n",
+    "passwall_apk": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEOmXHYLJGWFQCtbWqDqlxMvcAvkZZ\nOwy7UzzBIOxrGSAiu1blMeX96Q55Q9PH5GyjPwYiT4nrrwRgIttggGK62w==\n-----END PUBLIC KEY-----\n",
+    "nikki_apk": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETOwt83tzTFqyvjwimjuuvslR40t6\nXnROMwxZsC0iQAr2hHjuXX8qyhf5WaD2Hd897+Gc1/+4W4DMqroNp5w2Dg==\n-----END PUBLIC KEY-----\n",
+}
+
+
+def feed_prelude(version, packages):
+    """Shell run inside the container before `make image`."""
+    names = {p.lstrip("-") for p in packages if not p.startswith("-")}
+    branch = ".".join(version.split(".")[:2])
+    feeds = []
+    if names & PW_PKGS:
+        feeds += [(n, f"{PW}/releases/packages-{branch}/$ARCH/{n}") for n in
+                  ("passwall_packages", "passwall_luci", "passwall2")]
+    if names & NIKKI_PKGS:
+        feeds.append(("nikki", f"https://nikkinikki.pages.dev/openwrt-{branch}/$ARCH/nikki"))
+    lines = ['set -e', 'cd /builder',
+             'if [ -f repositories ]; then FMT=apk; RF=repositories; else FMT=ipk; RF=repositories.conf; fi',
+             'ARCH=$(grep -m1 -oE "packages/[^/]+/base" $RF | cut -d/ -f2)',
+             'echo "lukewrt: arch=$ARCH fmt=$FMT"',
+             'mkdir -p packages && cp /builder/asu-extra/* packages/ 2>/dev/null || true']
+    for n, u in feeds:
+        lines.append(f'if [ $FMT = apk ]; then echo "{u}/packages.adb" >> $RF; '
+                     f'else echo "src/gz {n} {u}" >> $RF; fi')
+    if feeds:
+        lines.append("sed -i 's/^option check_signature/# option check_signature/' repositories.conf 2>/dev/null || true")
+        for k in ("passwall_apk", "nikki_apk"):
+            body = KEYS[k].replace("\n", "\\n")
+            lines.append(f'if [ $FMT = apk ]; then mkdir -p keys; printf "%b" "{body}" > keys/{k}.pem; fi')
+        lines.append('cat $RF')
+    return " && ".join(lines[:2]) + "\n" + "\n".join(lines[2:]) + "\n"
+
+
+def fetch_openclash(dest: Path, version: str):
+    fmt = "apk" if int(version.split(".")[0]) >= 25 else "ipk"
+    req = urllib.request.Request("https://api.github.com/repos/vernesong/OpenClash/releases?per_page=5",
+                                 headers={"user-agent": "lukewrt-builder", "accept": "application/vnd.github+json"})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        rels = json.loads(r.read())
+    for rel in rels:
+        for a in rel.get("assets", []):
+            if a["name"].endswith("." + fmt) and a["name"].startswith("luci-app-openclash"):
+                urllib.request.urlretrieve(a["browser_download_url"], dest / a["name"])
+                print("openclash:", a["name"])
+                return
+    fail("OpenClash package not found for this version")
+
+
 
 def main():
     req = call("GET", f"/internal/job/{HASH}")
@@ -86,6 +147,10 @@ def main():
 
     BIN.mkdir(parents=True, exist_ok=True)
     FILES.mkdir(parents=True, exist_ok=True)
+    EXTRA.mkdir(parents=True, exist_ok=True)
+    want = set(req.get("packages") or [])
+    if "luci-app-openclash" in want:
+        fetch_openclash(EXTRA, version)
     if req.get("defaults"):
         d = FILES / "etc/uci-defaults"
         d.mkdir(parents=True, exist_ok=True)
@@ -96,6 +161,7 @@ def main():
         return sh(["docker", "run", "--rm",
                    "-v", f"{BIN}:/builder/out",
                    "-v", f"{FILES}:/builder/asu-files:ro",
+                   "-v", f"{EXTRA}:/builder/asu-extra:ro",
                    image, "bash", "-c", cmd])
 
     status(status="building", ib_status="validate_revision")
@@ -110,15 +176,18 @@ def main():
         fail(f"Profile {profile} not found")
     profile_packages = set(pm.group(1).split())
 
-    packages = req.get("packages") or []
+    packages = list(req.get("packages") or [])
+    if want & NEED_DNSMASQ_FULL and "dnsmasq-full" not in want:
+        packages = [p for p in packages if p != "dnsmasq"] + ["-dnsmasq", "dnsmasq-full"]
     if req.get("diff_packages"):
-        remove = (default_packages | profile_packages) - set(packages)
+        remove = (default_packages | profile_packages) - set(packages) - {"dnsmasq"}
         packages = sorted({f"-{p}".replace("--", "-") for p in remove}) + packages
 
     status(status="building", ib_status="building_image")
     pk = " ".join(packages)
     files_arg = "FILES=/builder/asu-files" if req.get("defaults") else ""
-    cmd = f'make image PROFILE="{profile}" PACKAGES="{pk}" BIN_DIR=/builder/out {files_arg}'
+    prelude = feed_prelude(version, packages)
+    cmd = prelude + f'make image PROFILE="{profile}" PACKAGES="{pk}" BIN_DIR=/builder/out {files_arg}'
     r = run(cmd)
     out, err = r.stdout, r.stderr
     if any(e in err for e in ["is too big", "out of space?"]):

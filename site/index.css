@@ -469,3 +469,13 @@ body {
   background-color: red;
   text-align: center;
 }
+
+/* LukeWrt picker */
+#lukewrt-picker fieldset { border: 1px solid #ddd; border-radius: 6px; margin: 0 0 12px; padding: 6px 12px 10px; }
+#lukewrt-picker legend { font-weight: bold; padding: 0 6px; }
+#lukewrt-picker .lw-note { font-size: 0.85em; color: #666; margin: 2px 0 6px; }
+#lukewrt-picker label { display: flex; align-items: flex-start; gap: 8px; padding: 4px 0; cursor: pointer; }
+#lukewrt-picker label input { margin-top: 4px; flex: none; }
+#lukewrt-picker label small { color: #777; }
+#lukewrt-picker label.lw-off { opacity: 0.45; cursor: not-allowed; }
+@media (min-width: 700px) { #lukewrt-picker fieldset { display: grid; grid-template-columns: 1fr 1fr; column-gap: 16px; } #lukewrt-picker legend, #lukewrt-picker .lw-note { grid-column: 1 / -1; } }

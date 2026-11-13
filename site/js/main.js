@@ -1,3 +1,4 @@
+import { setupPicker } from "./picker.js";
 import { $, show, showAlert } from "./utils.js";
 import { initTranslation } from "./translation.js";
 import { createAsuRequestBuilder } from "./asu.js";
@@ -157,6 +158,7 @@ async function init() {
   );
 
   setupUciDefaults();
+  setupPicker();
   updateImagesBound();
   initTranslation();
 

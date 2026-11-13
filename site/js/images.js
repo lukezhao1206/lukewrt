@@ -1,3 +1,4 @@
+import { syncPicker } from "./picker.js";
 import { $, $$, append, formatDate, hide, setValue, show } from "./utils.js";
 import { translate } from "./translation.js";
 
@@ -261,6 +262,7 @@ export function updateImages(version, mobj, context) {
         config,
         customDevicePackages
       ).join(" ");
+      syncPicker(true);
     }
 
     translate();
