@@ -188,6 +188,11 @@ def main():
     pk = " ".join(packages)
     files_arg = "FILES=/builder/asu-files" if req.get("defaults") else ""
     prelude = feed_prelude(version, packages)
+    rootfs = req.get("rootfs_size_mb")
+    if not rootfs and target.split("/")[0] in ("x86", "armsr", "armvirt"):
+        rootfs = 512  # default 104 MB fills up with proxy plugins
+    if rootfs:
+        files_arg += f" ROOTFS_PARTSIZE={int(rootfs)}"
     cmd = prelude + f'make image PROFILE="{profile}" PACKAGES="{pk}" BIN_DIR=/builder/out {files_arg}'
     r = run(cmd)
     out, err = r.stdout, r.stderr
