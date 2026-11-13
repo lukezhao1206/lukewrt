@@ -21,4 +21,5 @@ jobs:
           API: ${{ vars.API_URL }}
           UPLOAD_SECRET: ${{ secrets.UPLOAD_SECRET }}
           HASH: ${{ inputs.hash }}
+          GH_API_TOKEN: ${{ github.token }}
         run: python3 scripts/build.py

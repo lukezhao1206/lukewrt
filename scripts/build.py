@@ -121,7 +121,8 @@ def feed_prelude(version, packages):
 def fetch_openclash(dest: Path, version: str):
     fmt = "apk" if int(version.split(".")[0]) >= 25 else "ipk"
     req = urllib.request.Request("https://api.github.com/repos/vernesong/OpenClash/releases?per_page=5",
-                                 headers={"user-agent": "lukewrt-builder", "accept": "application/vnd.github+json"})
+                                 headers={"user-agent": "lukewrt-builder", "accept": "application/vnd.github+json",
+                                          **({"authorization": f"Bearer {os.environ['GH_API_TOKEN']}"} if os.environ.get("GH_API_TOKEN") else {})})
     with urllib.request.urlopen(req, timeout=60) as r:
         rels = json.loads(r.read())
     for rel in rels:

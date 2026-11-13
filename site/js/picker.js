@@ -6,10 +6,10 @@ const GROUPS = [
     title: "科学上网（一般选一个就够，都带中文界面）",
     note: "第三方插件来自各项目公开软件源，构建时自动加入并换成 dnsmasq-full。16MB 闪存的老机型空间紧，建议只选一个。",
     items: [
-      { name: "PassWall", desc: "Xray/sing-box/SS 等，国内用得最多", pkgs: ["luci-app-passwall", "luci-i18n-passwall-zh-cn"], min: 23 },
-      { name: "PassWall 2", desc: "PassWall 新版，按节点分流", pkgs: ["luci-app-passwall2", "luci-i18n-passwall2-zh-cn"], min: 23 },
+      { name: "PassWall", desc: "国内用得最多，已带 Xray 内核", pkgs: ["luci-app-passwall", "luci-i18n-passwall-zh-cn", "xray-core", "geoview", "v2ray-geoip", "v2ray-geosite", "kmod-nft-socket", "kmod-nft-tproxy", "kmod-nft-nat"], min: 23 },
+      { name: "PassWall 2", desc: "PassWall 新版，按节点分流，带 Xray 内核", pkgs: ["luci-app-passwall2", "luci-i18n-passwall2-zh-cn", "xray-core", "kmod-nft-socket", "kmod-nft-tproxy", "kmod-nft-nat"], min: 23 },
       { name: "OpenClash", desc: "Clash 订阅，内核装好后在界面里下载", pkgs: ["luci-app-openclash"], min: 23 },
-      { name: "Nikki", desc: "mihomo 内核，比 OpenClash 轻", pkgs: ["luci-app-nikki", "luci-i18n-nikki-zh-cn"], min: 24 },
+      { name: "Nikki", desc: "带 mihomo 内核，比 OpenClash 轻", pkgs: ["luci-app-nikki", "luci-i18n-nikki-zh-cn", "mihomo-meta"], min: 24 },
       { name: "v2rayA", desc: "官方源，网页管理", pkgs: ["luci-app-v2raya", "luci-i18n-v2raya-zh-cn"], min: 23 },
       { name: "仅 sing-box 内核", desc: "官方源，自己写配置", pkgs: ["sing-box"], min: 23 },
       { name: "仅 Xray 内核", desc: "官方源，自己写配置", pkgs: ["xray-core"], min: 23 },
