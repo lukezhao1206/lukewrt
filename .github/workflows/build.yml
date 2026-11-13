@@ -1,0 +1,24 @@
+name: build
+run-name: build ${{ inputs.hash }}
+on:
+  workflow_dispatch:
+    inputs:
+      hash:
+        description: request hash
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: build-${{ inputs.hash }}
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build firmware
+        env:
+          API: ${{ vars.API_URL }}
+          UPLOAD_SECRET: ${{ secrets.UPLOAD_SECRET }}
+          HASH: ${{ inputs.hash }}
+        run: python3 scripts/build.py
