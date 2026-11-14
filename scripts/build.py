@@ -333,6 +333,12 @@ def main():
         lost = [p for p in packages if p in OWN_FEED_APPS and p not in names]
         if lost:
             fail(f"{' '.join(lost)} 在 {version} 暂时只支持部分架构（这台设备的 CPU 架构还没有），请改用 24.10")
+        if "luci-i18n-base-zh-cn" in packages:
+            # Chinese UI requested: bring the matching translations from our feed too
+            for a in [p for p in packages if p in OWN_FEED_APPS]:
+                t = "luci-i18n-" + a[len("luci-app-"):] + "-zh-cn"
+                if t in names and t not in packages:
+                    packages.append(t)
         if "luci-app-ssr-plus" in packages:
             # our SDK build uses the nftables backend, whose kmods are config-selected, not package deps
             packages += [k for k in ("kmod-nft-tproxy", "kmod-nft-socket", "kmod-nft-nat") if k not in packages]
