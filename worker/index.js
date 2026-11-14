@@ -8,7 +8,7 @@ const JSONH = { "content-type": "application/json; charset=utf-8" };
 const CORS = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET, POST, OPTIONS",
-  "access-control-allow-headers": "content-type, x-lukewrt-code",
+  "access-control-allow-headers": "*",
 };
 const QUEUE_TIMEOUT_MS = 60 * 60 * 1000;
 const MAX_BUILDS_PER_HOUR = 6;
@@ -113,11 +113,48 @@ async function statusResponse(env, hash) {
 
 const queue = (env) => env.QUEUE.get(env.QUEUE.idFromName("main"));
 
-async function build(req, env) {
+async function upstreamJson(path) {
+  const r = await fetch(DL + path, { cf: { cacheTtl: 600, cacheEverything: true } });
+  if (!r.ok) throw new Error(`upstream ${r.status} ${path}`);
+  return r.json();
+}
+
+// Router clients send board_name (e.g. "xiaomi,mi-router-4a-gigabit"); map to an ImageBuilder profile.
+async function normalizeProfile(version, target, profile) {
+  if (/^(x86|armsr|armvirt|loongarch)\//.test(target)) return "generic";
+  if (!profile.includes(",")) return profile;
+  const pj = await upstreamJson(`/releases/${version}/targets/${target}/profiles.json`);
+  if (pj.profiles[profile]) return profile;
+  const u = profile.replace(/,/g, "_");
+  if (pj.profiles[u]) return u;
+  for (const [id, p] of Object.entries(pj.profiles)) if ((p.supported_devices || []).includes(profile)) return id;
+  return profile;
+}
+
+async function overview() {
+  const v = await upstreamJson("/.versions.json");
+  const list = (v.versions_list || []).filter((x) => /^\d+\.\d+\.\d+$/.test(x));
+  const branches = {};
+  for (const x of list) {
+    const b = x.split(".").slice(0, 2).join(".");
+    const cmp = (a, c) => a.split(".").map(Number).reduce((r, n, i) => r || n - c.split(".").map(Number)[i], 0);
+    if (!branches[b] || cmp(x, branches[b].latest) > 0) branches[b] = { name: b, latest: x };
+  }
+  const out = {};
+  for (const [b, o] of Object.entries(branches)) out[b] = { name: b, enabled: true, versions: list.filter((x) => x.startsWith(b + ".")), package_changes: [] };
+  return { server: { name: "lukewrt" }, latest: Object.values(branches).map((o) => o.latest), branches: out };
+}
+
+async function build(req, env, viaCode = "") {
   let b;
   try { b = await req.json(); } catch { return json({ detail: "invalid json" }, 400); }
   const err = validate(b);
   if (err) return json({ detail: err }, 400);
+  if (viaCode) {
+    const c = await checkCode(env, viaCode, false);
+    if (c.left !== -1) return json({ detail: "在线一键升级是永久版功能，请到 fw.luke.us.eu.org 升级永久版" }, 402);
+    b.profile = await normalizeProfile(b.version, b.target, b.profile);
+  }
   const clean = {
     version: b.version, target: b.target, profile: b.profile,
     packages: [...new Set(b.packages || [])].sort(),
@@ -125,6 +162,7 @@ async function build(req, env) {
   };
   const k9 = [...new Set(b.k9 || [])].sort();
   if (k9.length) clean.k9 = k9;
+  if (viaCode) { clean.auto_k9 = true; if (b.rootfs_size_mb) clean.rootfs_size_mb = Math.min(4096, parseInt(b.rootfs_size_mb, 10) || 0) || undefined; }
   const hash = (await sha256(JSON.stringify(clean))).slice(0, 32);
   const existing = await env.JOBS.get(`job:${hash}`);
   if (existing) {
@@ -132,11 +170,11 @@ async function build(req, env) {
     if (j.status !== "failed") return statusResponse(env, hash);
   }
   const ip = req.headers.get("cf-connecting-ip") || "unknown";
-  const code = (req.headers.get("x-lukewrt-code") || "").trim().toUpperCase();
+  const code = viaCode || (req.headers.get("x-lukewrt-code") || "").trim().toUpperCase();
   const rk = `rate:${ip}:${Math.floor(Date.now() / 3600000)}`;
   const n = parseInt((await env.JOBS.get(rk)) || "0", 10);
   if (n >= MAX_BUILDS_PER_HOUR) return json({ detail: "too many builds, try again in an hour" }, 429);
-  const premium = !!(clean.defaults && clean.defaults.trim()) || !!clean.k9;
+  const premium = !!(clean.defaults && clean.defaults.trim()) || !!clean.k9 || !!viaCode;
   let paid = false;
   if (premium && !(existing && JSON.parse(existing).paid)) {
     const c = await checkCode(env, code, true);
@@ -210,10 +248,17 @@ export default {
     const url = new URL(req.url);
     let path = decodeURIComponent(url.pathname);
     if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
+    let viaCode = "";
+    let m;
+    if ((m = path.match(/^\/u\/(LW-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}-[A-Za-z0-9]{4})(\/.*)$/))) { viaCode = m[1].toUpperCase(); path = m[2]; }
     try {
       if (path.startsWith("/internal/")) return await internal(req, env, path, url);
-      if (path === "/api/v1/build" && req.method === "POST") return await build(req, env);
-      let m;
+      if (path === "/api/v1/build" && req.method === "POST") return await build(req, env, viaCode);
+      if (path === "/api/v1/overview") return json(await overview(), 200, { "cache-control": "public, max-age=600" });
+      if ((m = path.match(/^\/api\/v1\/revision\/([0-9.a-zA-Z\-]+)\/([a-z0-9]+\/[a-z0-9_\-]+)$/))) {
+        const pj = await upstreamJson(`/releases/${m[1]}/targets/${m[2]}/profiles.json`);
+        return json({ revision: pj.version_code });
+      }
       if ((m = path.match(/^\/api\/v1\/build\/([0-9a-f]{32})$/))) return await statusResponse(env, m[1]);
       if (path === "/api/pay/plans") return json({ plans: Object.fromEntries(Object.entries(PLANS).map(([k, v]) => [k, v.amount])) });
       if (path === "/api/pay/create" && req.method === "POST") {
@@ -243,7 +288,7 @@ export default {
         return json(await queue(env).promote(m[1]));
       }
       if (path === "/api/v1/queue") return json(await queue(env).stats());
-      if (path === "/api/v1/overview" || path === "/api/v1/stats") return json({ server: "lukewrt" });
+      if (path === "/api/v1/stats") return json({ server: "lukewrt" });
       if (path.startsWith("/dl/")) return await proxyDownloads(path.slice(3), req, ctx);
       if ((m = path.match(/^\/k9\/(packages-\d+\.\d+\/[a-z0-9_]+\/kiddin9\/Packages)$/))) {
         const ck = new Request("https://dl.openwrt.ai/" + m[1]);

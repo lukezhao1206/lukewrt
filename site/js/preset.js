@@ -1,4 +1,6 @@
 // LukeWrt 预置设置（高级功能）：生成 uci-defaults 首次启动脚本
+import { getCode } from "./pay.js";
+const ASU_PKGS = ["luci-app-attendedsysupgrade", "luci-i18n-attendedsysupgrade-zh-cn"];
 const q = (v) => "'" + String(v).replace(/'/g, "'\\''") + "'";
 const ipOk = (s) => /^(\d{1,3}\.){3}\d{1,3}$/.test(s) && s.split(".").every((n) => +n <= 255);
 
@@ -41,6 +43,7 @@ export function presetScript(v) {
     );
   }
   if (v.tz) L.push("uci set system.@system[0].zonename='Asia/Shanghai'", "uci set system.@system[0].timezone='CST-8'", "uci commit system");
+  if (v.upg) L.push(`uci set attendedsysupgrade.@server[0].url=${q(v.upg)}`, "uci commit attendedsysupgrade");
   if (v.root) L.push(`(echo ${q(v.root)}; sleep 1; echo ${q(v.root)}) | passwd root >/dev/null 2>&1`);
   L.push("exit 0");
   return L.join("\n") + "\n";
@@ -67,6 +70,7 @@ export function initPreset() {
   <div class="row"><label>WiFi 名称 <input type="text" id="lwp-ssid"></label><label>WiFi 密码 <input type="password" id="lwp-wpass" placeholder="至少 8 位"></label></div>
   <div class="row"><label>后台 root 密码 <input type="password" id="lwp-root" placeholder="留空则无密码"></label>
     <label><input type="checkbox" id="lwp-tz" checked> 时区设为北京时间</label></div>
+  <div class="row"><label><input type="checkbox" id="lwp-upg"> 预装在线一键升级（永久版专享：以后在路由后台“系统→托管升级”一键升到新版，保留设置和插件）</label></div>
   <div class="row"><button id="lwp-gen">生成到下方脚本</button> <span id="lwp-msg" class="hint"></span></div>
   <div class="hint">密码会写进固件和本次编译记录（7 天后自动删除）；介意的话刷机后再改。</div>`;
   label.parentNode.insertBefore(box, label);
@@ -82,6 +86,16 @@ export function initPreset() {
     e.preventDefault();
     const v = { mode: val("lwp-mode"), ip: val("lwp-ip"), mask: val("lwp-mask"), wan: val("lwp-wan"), user: val("lwp-user"), pass: val("lwp-pass"),
       gw: val("lwp-gw"), dns: val("lwp-dns"), ssid: val("lwp-ssid"), wpass: val("lwp-wpass"), root: val("lwp-root"), tz: val("lwp-tz") };
+    if (val("lwp-upg")) {
+      const code = getCode();
+      if (!code) { document.getElementById("lwp-msg").textContent = "一键升级需要先输入或购买永久版激活码"; return; }
+      v.upg = `${location.origin}/u/${code}`;
+      const ta = document.getElementById("asu-packages");
+      const have = new Set(ta.value.split(/\s+/).filter(Boolean));
+      ASU_PKGS.forEach((p) => have.add(p));
+      ta.value = [...have].join(" ");
+      ta.dispatchEvent(new Event("input"));
+    }
     const msg = document.getElementById("lwp-msg");
     for (const k of ["ip", "mask", "gw", "dns"]) if (v[k] && !ipOk(v[k])) { msg.textContent = `IP 格式不对：${v[k]}`; return; }
     if (v.mode === "bypass" && !v.gw) { msg.textContent = "旁路由要填主路由 IP"; return; }

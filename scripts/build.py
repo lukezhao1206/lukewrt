@@ -125,11 +125,12 @@ def _deps(m):
     return out
 
 
-def fetch_k9(dest: Path, version: str, target: str, wanted):
-    """Download kiddin9 packages the user picked, plus deps official feeds lack, into dest."""
-    branch = ".".join(version.split(".")[:2])
-    if int(version.split(".")[0]) >= 25:
-        fail("插件大库目前只支持 24.10 版本")
+_OFF = {}
+
+
+def official_index(version, target):
+    if (version, target) in _OFF:
+        return _OFF[(version, target)]
     rel = f"https://downloads.openwrt.org/releases/{version}"
     with urllib.request.urlopen(f"{rel}/targets/{target}/profiles.json", timeout=60) as r:
         arch = json.loads(r.read())["arch_packages"]
@@ -142,6 +143,16 @@ def fetch_k9(dest: Path, version: str, target: str, wanted):
         for p in (m.get("Provides") or "").split(","):
             if p.strip():
                 provided.add(re.split(r"[\s(<>=]", p.strip())[0])
+    _OFF[(version, target)] = (arch, official, provided)
+    return _OFF[(version, target)]
+
+
+def fetch_k9(dest: Path, version: str, target: str, wanted):
+    """Download kiddin9 packages the user picked, plus deps official feeds lack, into dest."""
+    branch = ".".join(version.split(".")[:2])
+    if int(version.split(".")[0]) >= 25:
+        fail("插件大库目前只支持 24.10 版本")
+    arch, official, provided = official_index(version, target)
     kbase = f"https://dl.openwrt.ai/packages-{branch}/{arch}/kiddin9"
     k9 = _index(f"{kbase}/Packages.gz")
     if not k9:
@@ -246,6 +257,16 @@ def main():
     if "luci-app-openclash" in want:
         fetch_openclash(EXTRA, version)
     k9 = []
+    if req.get("auto_k9") and int(version.split(".")[0]) < 25:
+        # router upgrade: installed packages missing from official feeds come from the plugin library
+        _, _, provided = official_index(version, target)
+        known = provided | PW_PKGS | NIKKI_PKGS | {"luci-app-openclash"}
+        extra = [p for p in want if not p.startswith("-") and p not in known]
+        if extra:
+            print("auto k9:", extra)
+            req["k9"] = sorted(set(req.get("k9") or []) | set(extra))
+            req["packages"] = [p for p in req.get("packages") or [] if p not in extra]
+            want = set(req["packages"])
     if req.get("k9"):
         status(status="building", ib_status="download_k9")
         k9 = fetch_k9(EXTRA, version, target, list(req["k9"]))
