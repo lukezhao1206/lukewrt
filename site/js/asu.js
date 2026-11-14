@@ -178,7 +178,9 @@ export function createAsuRequestBuilder(context) {
                 hide("#asu-log");
               }
 
-              if ("detail" in mobj) {
+              if ("detail" in mobj && /exceed device storage|too big/i.test(mobj.detail)) {
+                showStatus("固件超出这台路由器的闪存容量，编译失败。少勾几个插件（科学上网只留一个轻量的）再试。", false, "error");
+              } else if ("detail" in mobj) {
                 showStatus(mobj.detail, false, "error");
               } else if (
                 "stderr" in mobj &&
