@@ -1,8 +1,8 @@
 {
     "tr-message": "輸入裝置的名稱或型號，然後選擇推薦的穩定版本或夜間「快照」版本。",
     "tr-not-found": "未找到型號！",
-    "tr-load": "下載適用於您裝置的 OpenWrt 韌體",
-    "tr-title": "OpenWrt 韌體選擇器",
+    "tr-load": "LukeWrt 線上定製 OpenWrt 韌體",
+    "tr-title": "LukeWrt 線上韌體定製",
     "tr-version-build": "關於此版本",
     "tr-custom-build": "自訂版本",
     "tr-customize": "自訂已安裝套件及/或首次啟動指令碼",

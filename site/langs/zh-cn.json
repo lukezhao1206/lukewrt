@@ -1,8 +1,8 @@
 {
     "tr-server-link": "所有文件",
     "tr-not-found": "未找到型号！",
-    "tr-load": "下载适用于您设备的 OpenWrt 固件",
-    "tr-title": "OpenWrt 固件选择器",
+    "tr-load": "LukeWrt 在线定制 OpenWrt 固件",
+    "tr-title": "LukeWrt 在线固件定制",
     "tr-message": "输入设备的名称或型号，然后选择一个稳定或快照版本。",
     "tr-version-build": "关于此构建",
     "tr-custom-build": "自定义构建",
