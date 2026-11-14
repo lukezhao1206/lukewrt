@@ -1,10 +1,20 @@
 <!DOCTYPE html>
 
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>LukeWrt 在线固件定制 · OpenWrt Firmware Selector</title>
+    <title>LukeWrt 在线固件定制 · OpenWrt 在线编译，预装 PassWall / OpenClash</title>
+    <meta name="description" content="LukeWrt 在线编译 OpenWrt 固件：选型号、勾插件，几分钟出固件。支持 x86 软路由和各品牌路由器，可预装 PassWall、OpenClash、Nikki、SSR Plus，免费使用。" />
+    <meta name="keywords" content="OpenWrt 在线编译,OpenWrt 固件定制,软路由固件,x86 固件,PassWall 固件,OpenClash 固件,OpenWrt 24.10,OpenWrt 25.12,ImageBuilder" />
+    <link rel="canonical" href="https://fw.luke.us.eu.org/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="LukeWrt 在线固件定制 · OpenWrt 在线编译" />
+    <meta property="og:description" content="选型号、勾插件，几分钟下载定制好的 OpenWrt 固件，可预装 PassWall、OpenClash。" />
+    <meta property="og:url" content="https://fw.luke.us.eu.org/" />
+    <meta property="og:locale" content="zh_CN" />
+    <script type="application/ld+json">[{"@context": "https://schema.org", "@type": "WebApplication", "name": "LukeWrt 在线固件定制", "url": "https://fw.luke.us.eu.org/", "applicationCategory": "UtilitiesApplication", "operatingSystem": "OpenWrt", "inLanguage": "zh-CN", "offers": {"@type": "Offer", "price": "0", "priceCurrency": "CNY"}}, {"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "LukeWrt 是什么？", "acceptedAnswer": {"@type": "Answer", "text": "在线定制 OpenWrt 固件的网站。选好路由器型号和版本，勾选要装的插件，几分钟后直接下载编译好的固件，不用自己搭编译环境。固件基于 OpenWrt 官方 ImageBuilder 生成。"}}, {"@type": "Question", "name": "支持哪些路由器？", "acceptedAnswer": {"@type": "Answer", "text": "OpenWrt 官方支持的机型都可以，包括 x86 软路由、小米、红米、TP-Link、GL.iNet、网件、华硕等，版本可选 25.12 和 24.10 系列。"}}, {"@type": "Question", "name": "能预装 PassWall、OpenClash 吗？", "acceptedAnswer": {"@type": "Answer", "text": "可以，PassWall、PassWall 2、OpenClash、Nikki、SSR Plus、HomeProxy 等插件勾选即装，免费，带中文界面。"}}, {"@type": "Question", "name": "收费吗？", "acceptedAnswer": {"@type": "Answer", "text": "普通编译免费、不限次数。预置 IP 和拨号账号、插件大库、优先排队、路由器内一键升级属于高级功能，单次 3 元，永久版 88 元。"}}, {"@type": "Question", "name": "x86 软路由该下载哪个文件？", "acceptedAnswer": {"@type": "Answer", "text": "新机器选 COMBINED-EFI (SQUASHFS)，只支持 BIOS 的老机器选 COMBINED (SQUASHFS)。"}}]}]</script>
+
     <link rel="icon" href="favicon.ico" />
     <link rel="stylesheet" href="index.css" />
     <script src="config.js"></script>
@@ -214,6 +224,22 @@
             <div id="download-extras2"></div>
           </div>
         </div>
+
+<div id="lw-about" style="margin:2em 0 1em;line-height:1.7">
+  <h2>OpenWrt 在线编译，几分钟拿到定制固件</h2>
+  <p>LukeWrt 基于 OpenWrt 官方 ImageBuilder，在云端替你编译固件：选机型和版本，勾选插件，点“要求建置”，完成后直接下载。适合 x86 软路由、旁路由和各品牌家用路由器。</p>
+  <h3>常见问题</h3>
+  <h4>LukeWrt 是什么？</h4>
+  <p>在线定制 OpenWrt 固件的网站。选好路由器型号和版本，勾选要装的插件，几分钟后直接下载编译好的固件，不用自己搭编译环境。固件基于 OpenWrt 官方 ImageBuilder 生成。</p>
+  <h4>支持哪些路由器？</h4>
+  <p>OpenWrt 官方支持的机型都可以，包括 x86 软路由、小米、红米、TP-Link、GL.iNet、网件、华硕等，版本可选 25.12 和 24.10 系列。</p>
+  <h4>能预装 PassWall、OpenClash 吗？</h4>
+  <p>可以，PassWall、PassWall 2、OpenClash、Nikki、SSR Plus、HomeProxy 等插件勾选即装，免费，带中文界面。</p>
+  <h4>收费吗？</h4>
+  <p>普通编译免费、不限次数。预置 IP 和拨号账号、插件大库、优先排队、路由器内一键升级属于高级功能，单次 3 元，永久版 88 元。</p>
+  <h4>x86 软路由该下载哪个文件？</h4>
+  <p>新机器选 COMBINED-EFI (SQUASHFS)，只支持 BIOS 的老机器选 COMBINED (SQUASHFS)。</p>
+</div>
 
         <div id="footer">
           <span

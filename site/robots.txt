@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /store/
+Disallow: /u/
+
+Sitemap: https://fw.luke.us.eu.org/sitemap.xml

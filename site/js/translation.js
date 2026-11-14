@@ -45,7 +45,7 @@ export function initTranslation() {
   } else if (select.querySelector(`[value="${short}"]`)) {
     select.value = short;
   } else {
-    select.value = currentLanguage || "en";
+    select.value = "zh-cn";
   }
 
   select.onchange = function () {
