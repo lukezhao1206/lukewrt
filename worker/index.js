@@ -179,7 +179,8 @@ async function build(req, env, viaCode = "") {
   const code = viaCode || (req.headers.get("x-lukewrt-code") || "").trim().toUpperCase();
   const rk = `rate:${ip}:${Math.floor(Date.now() / 3600000)}`;
   const n = parseInt((await env.JOBS.get(rk)) || "0", 10);
-  if (n >= MAX_BUILDS_PER_HOUR) return json({ detail: "too many builds, try again in an hour" }, 429);
+  if (n >= MAX_BUILDS_PER_HOUR && !(code && (await checkCode(env, code, false)).left === -1))
+    return json({ detail: "这个小时编译次数用完了（每小时 6 次），一小时后再试；永久版不限" }, 429);
   const premium = !!(clean.defaults && clean.defaults.trim()) || (clean.k9 || []).some((p) => !FREE_K9.includes(p)) || !!viaCode;
   let paid = false;
   if (premium && !(existing && JSON.parse(existing).paid)) {
