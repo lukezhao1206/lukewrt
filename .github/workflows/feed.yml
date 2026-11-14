@@ -37,7 +37,7 @@ jobs:
         run: |
           T=$(echo "$TARGET" | tr / -)
           mkdir -p out && chmod 777 out
-          docker run --rm -e FEED_KEY -e VERSION -e PKGS -v "$PWD/scripts/feed:/feed:ro" -v "$PWD/out:/out" \
+          docker run --rm -e FEED_KEY -e VERSION -e PKGS -e TARGET -v "$PWD/scripts/feed:/feed:ro" -v "$PWD/out:/out" \
             "ghcr.io/openwrt/sdk:$T-v$VERSION" bash /feed/build-feed.sh
       - name: Upload feed to R2
         env:

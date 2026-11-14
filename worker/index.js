@@ -227,7 +227,7 @@ async function internal(req, env, path, url) {
     try { return json({ ok: await selfTest(env) }); } catch (e) { return json({ ok: false, error: String(e.message) }); }
   }
   const key = url.searchParams.get("key") || "";
-  if (!/^(store|site|packages)\/[A-Za-z0-9._+\-\/]+$/.test(key) || key.includes("..")) return json({ detail: "bad key" }, 400);
+  if (!/^(store|site|packages)\/[A-Za-z0-9._+~\-\/]+$/.test(key) || key.includes("..")) return json({ detail: "bad key" }, 400);
   if (path === "/internal/put" && req.method === "PUT") {
     await env.BUCKET.put(key, req.body, { httpMetadata: { contentType: req.headers.get("content-type") || undefined } });
     return json({ ok: true });

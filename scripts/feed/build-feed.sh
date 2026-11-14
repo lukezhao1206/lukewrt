@@ -14,6 +14,8 @@ set -x
 cp feeds.conf.default feeds.conf
 echo "src-git helloworld https://github.com/fw876/helloworld.git;master" >> feeds.conf
 ./scripts/feeds update -a > /out/logs/feeds-update.log 2>&1
+# simple-obfs: git-generated tarball no longer matches the pinned hash
+sed -i -E 's/^(PKG_MIRROR_HASH|PKG_HASH):=.*/\1:=skip/' feeds/helloworld/simple-obfs/Makefile
 
 # sources that are a package (or a few) rather than a feed
 git clone --depth 1 https://github.com/immortalwrt/homeproxy /tmp/homeproxy
@@ -81,11 +83,11 @@ done
 
 APK=staging_dir/host/bin/apk
 mkdir -p /tmp/all
-find bin/packages bin/targets -name '*.apk' -exec cp -f {} /tmp/all/ \; 2>/dev/null || true
+find bin/packages -name '*.apk' -exec cp -f {} /tmp/all/ \; 2>/dev/null || true
 ls /tmp/all | head -200
 (cd /tmp/all && /builder/$APK mkndx --allow-untrusted --output packages.adb *.apk)
 $APK adbdump --format json /tmp/all/packages.adb > /out/all.json
-python3 /feed/select.py /out/all.json "$VERSION" "$ARCH" /tmp/all /out/feed > /out/select.txt
+python3 /feed/pick_pkgs.py /out/all.json "$VERSION" "$ARCH" /tmp/all /out/feed "$TARGET" > /out/select.txt
 cat /out/select.txt
 cd /out/feed
 /builder/$APK mkndx --root /builder --keys-dir /builder --allow-untrusted --sign /builder/private-key.pem --output packages.adb *.apk
