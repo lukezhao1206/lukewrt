@@ -24,7 +24,6 @@ const GROUPS = [
     items: [
       { name: "中文界面", desc: "LuCI 简体中文", pkgs: ["luci-i18n-base-zh-cn", "luci-i18n-firewall-zh-cn"], on: true },
       { name: "网页终端 ttyd", desc: "浏览器里开 SSH", pkgs: ["luci-app-ttyd", "luci-i18n-ttyd-zh-cn"] },
-      { name: "在线升级", desc: "以后在路由器里一键升级", pkgs: ["luci-app-attendedsysupgrade", "luci-i18n-attendedsysupgrade-zh-cn"] },
       { name: "断网自动重启", desc: "watchcat", pkgs: ["luci-app-watchcat", "luci-i18n-watchcat-zh-cn"] },
     ],
   },
