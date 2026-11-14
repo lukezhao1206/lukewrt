@@ -1,0 +1,61 @@
+name: feed
+run-name: feed ${{ inputs.version }} ${{ inputs.target }}
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: OpenWrt release (apk based, 25.12+)
+        default: "25.12.6"
+        required: true
+      target:
+        description: SDK target/subtarget, e.g. x86/64, mediatek/filogic
+        default: x86/64
+        required: true
+      packages:
+        description: space separated luci apps to build (empty = all four)
+        required: false
+permissions:
+  contents: read
+concurrency:
+  group: feed-${{ inputs.version }}-${{ inputs.target }}
+jobs:
+  feed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h /
+      - name: Build packages in official SDK
+        env:
+          FEED_KEY: ${{ secrets.FEED_KEY_APK }}
+          VERSION: ${{ inputs.version }}
+          TARGET: ${{ inputs.target }}
+          PKGS: ${{ inputs.packages }}
+        run: |
+          T=$(echo "$TARGET" | tr / -)
+          mkdir -p out && chmod 777 out
+          docker run --rm -e FEED_KEY -e VERSION -e PKGS -v "$PWD/scripts/feed:/feed:ro" -v "$PWD/out:/out" \
+            "ghcr.io/openwrt/sdk:$T-v$VERSION" bash /feed/build-feed.sh
+      - name: Upload feed to R2
+        env:
+          API: ${{ vars.API_URL }}
+          UPLOAD_SECRET: ${{ secrets.UPLOAD_SECRET }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          ARCH=$(sed -n 's/^arch=//p' out/arch.txt)
+          BRANCH=$(echo "$VERSION" | cut -d. -f1-2)
+          sudo cp scripts/feed/lukewrt-feed.pem out/feed/ && sudo chmod -R a+r out/feed
+          python3 scripts/feed/upload.py out/feed "packages/feed/$BRANCH/$ARCH"
+      - name: Keep logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: feed-logs
+          path: |
+            out/logs
+            out/*.txt
+            out/all.json
+          retention-days: 7
