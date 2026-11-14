@@ -6,8 +6,7 @@ set -e
 cd /builder
 if [ ! -f Makefile ] && [ -x ./setup.sh ]; then ./setup.sh; fi
 mkdir -p /out/logs /out/feed
-ARCH=$(sed -n 's/^CONFIG_TARGET_ARCH_PACKAGES="\(.*\)"/\1/p' .config)
-echo "arch=$ARCH" | tee /out/arch.txt
+ls /builder | tee /out/sdk-ls.txt
 # signing key (never echoed)
 if [ -n "$FEED_KEY" ]; then printf '%s\n' "$FEED_KEY" > private-key.pem; fi
 set -x
@@ -65,6 +64,9 @@ CONFIG_PACKAGE_luci-app-bypass_INCLUDE_Xray=y
 CONFIG_PACKAGE_luci-app-bypass_INCLUDE_Socks_Server=y
 CFG
 make defconfig > /out/logs/defconfig.log 2>&1
+ARCH=$(sed -n 's/^CONFIG_TARGET_ARCH_PACKAGES="\(.*\)"/\1/p' .config)
+echo "arch=$ARCH" | tee /out/arch.txt
+test -n "$ARCH"
 grep -E 'luci-app-(ssr-plus|bypass)_|luci-app-(homeproxy|fchomo)=' .config > /out/config-used.txt || true
 
 : > /out/failed.txt
