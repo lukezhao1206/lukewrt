@@ -322,7 +322,7 @@ export default {
       }
       if (path === "/" || path === "") path = "/index.html";
       if (path.includes("..")) return new Response("bad path", { status: 400 });
-      const r = await serveR2(env, "site" + path, req, { cache: path === "/index.html" || path === "/config.js" ? "no-cache" : "public, max-age=3600" });
+      const r = await serveR2(env, "site" + path, req, { cache: "no-cache" });
       return r || new Response("Not found", { status: 404 });
     } catch (e) {
       return json({ detail: "server error", error: String(e && e.message) }, 500);
