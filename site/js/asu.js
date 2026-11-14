@@ -2,6 +2,11 @@ import { $, $$, hide, show, split } from "./utils.js";
 import { translate } from "./translation.js";
 import { getCode, openPay } from "./pay.js";
 
+function prioritize(hash) {
+  fetch(`${window.config.asu_url}/api/v1/priority/${hash}`, { method: "POST", headers: { "X-LukeWrt-Code": getCode() } })
+    .then((r) => { if (r.status === 402) openPay("priority"); });
+}
+
 export function createAsuRequestBuilder(context) {
   const { config, progress, ofsVersion, getCurrentDevice, updateImages } =
     context;
@@ -95,6 +100,7 @@ export function createAsuRequestBuilder(context) {
       target: currentDevice.target,
       packages: split($("#asu-packages").value),
       defaults: $("#uci-defaults-content").value,
+      k9: window.lukewrtK9 ? [...window.lukewrtK9] : [],
       version_code: $("#image-code").innerText,
       version: selectedVersion,
       diff_packages: true,
@@ -146,9 +152,17 @@ export function createAsuRequestBuilder(context) {
                 "info"
               );
               if (mobj.queue_position) {
-                $("#asu-buildstatus span").appendChild(
-                  document.createTextNode(` (${mobj.queue_position})`)
-                );
+                const sp = $("#asu-buildstatus span");
+                sp.appendChild(document.createTextNode(` 排队中，前面还有 ${mobj.queue_position} 人`));
+                if (!mobj.priority) {
+                  const a = document.createElement("a");
+                  a.href = "#";
+                  a.textContent = " 【3 元优先排队】";
+                  a.onclick = (e) => { e.preventDefault(); prioritize(mobj.request_hash); };
+                  sp.appendChild(a);
+                } else {
+                  sp.appendChild(document.createTextNode("（已优先）"));
+                }
               }
               setTimeout(buildAsuRequest.bind(null, mobj.request_hash), 5000);
             });

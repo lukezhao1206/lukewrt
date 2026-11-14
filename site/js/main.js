@@ -1,6 +1,7 @@
 import { setupPicker } from "./picker.js";
 import { initPay } from "./pay.js";
 import { initPreset } from "./preset.js";
+import { initK9 } from "./k9.js";
 import { $, show, showAlert } from "./utils.js";
 import { initTranslation } from "./translation.js";
 import { createAsuRequestBuilder } from "./asu.js";
@@ -163,6 +164,7 @@ async function init() {
   setupPicker();
   initPay();
   initPreset();
+  initK9();
   updateImagesBound();
   initTranslation();
 

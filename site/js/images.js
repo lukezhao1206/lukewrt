@@ -263,6 +263,7 @@ export function updateImages(version, mobj, context) {
         customDevicePackages
       ).join(" ");
       syncPicker(true);
+      window.dispatchEvent(new CustomEvent("lukewrt-device", { detail: { version, target: mobj.target, arch: mobj.arch_packages } }));
     }
 
     translate();

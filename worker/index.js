@@ -1,5 +1,7 @@
 // LukeWrt Worker: serves the firmware selector, an ASU-compatible build API,
 // and built images from R2. Builds run on GitHub Actions.
+import { BuildQueue, dispatch, MAX_RUNNING } from "./queue.js";
+export { BuildQueue };
 import { createOrder, orderStatus, handleNotify, checkCode, selfTest, PLANS } from "./pay.js";
 const DL = "https://downloads.openwrt.org";
 const JSONH = { "content-type": "application/json; charset=utf-8" };
@@ -78,6 +80,9 @@ function validate(b) {
   const pk = b.packages || [];
   if (!Array.isArray(pk) || pk.length > 300) return "bad packages";
   for (const p of pk) if (typeof p !== "string" || !/^-?[A-Za-z0-9._+\-]+$/.test(p) || p.length > 100) return `bad package ${p}`;
+  const k9 = b.k9 || [];
+  if (!Array.isArray(k9) || k9.length > 100) return "bad k9";
+  for (const p of k9) if (typeof p !== "string" || !/^[A-Za-z0-9._+\-]+$/.test(p) || p.length > 100) return `bad package ${p}`;
   if (b.defaults && (typeof b.defaults !== "string" || b.defaults.length > 20480)) return "uci-defaults too long";
   return null;
 }
@@ -93,7 +98,12 @@ async function statusResponse(env, hash) {
   if (job.status === "failed") {
     return json({ detail: job.detail || "build failed", stdout: job.stdout || "", stderr: job.stderr || "", request_hash: hash }, 500);
   }
+  if (job.status === "queued") {
+    const pos = await queue(env).position(hash);
+    if (pos.state === "queued") return json({ request_hash: hash, imagebuilder_status: "init", detail: "queued", queue_position: pos.ahead > 0 ? pos.ahead : undefined, priority: !!pos.priority }, 202);
+  }
   if (Date.now() - job.created > QUEUE_TIMEOUT_MS) {
+    try { await queue(env).finish(hash); } catch {}
     job.status = "failed"; job.detail = "build timed out";
     await env.JOBS.put(`job:${hash}`, JSON.stringify(job), { expirationTtl: 86400 });
     return json({ detail: job.detail, request_hash: hash }, 500);
@@ -101,19 +111,7 @@ async function statusResponse(env, hash) {
   return json({ request_hash: hash, imagebuilder_status: job.ib_status || "init", detail: job.status, queue_position: job.queue_position }, 202);
 }
 
-async function dispatch(env, hash) {
-  const r = await fetch(`https://api.github.com/repos/${env.GH_REPO}/actions/workflows/build.yml/dispatches`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${env.GH_TOKEN}`,
-      accept: "application/vnd.github+json",
-      "user-agent": "lukewrt-worker",
-      "x-github-api-version": "2022-11-28",
-    },
-    body: JSON.stringify({ ref: "main", inputs: { hash } }),
-  });
-  if (!r.ok) throw new Error(`dispatch failed ${r.status}: ${(await r.text()).slice(0, 200)}`);
-}
+const queue = (env) => env.QUEUE.get(env.QUEUE.idFromName("main"));
 
 async function build(req, env) {
   let b;
@@ -125,6 +123,8 @@ async function build(req, env) {
     packages: [...new Set(b.packages || [])].sort(),
     defaults: b.defaults || "", diff_packages: !!b.diff_packages,
   };
+  const k9 = [...new Set(b.k9 || [])].sort();
+  if (k9.length) clean.k9 = k9;
   const hash = (await sha256(JSON.stringify(clean))).slice(0, 32);
   const existing = await env.JOBS.get(`job:${hash}`);
   if (existing) {
@@ -136,22 +136,19 @@ async function build(req, env) {
   const rk = `rate:${ip}:${Math.floor(Date.now() / 3600000)}`;
   const n = parseInt((await env.JOBS.get(rk)) || "0", 10);
   if (n >= MAX_BUILDS_PER_HOUR) return json({ detail: "too many builds, try again in an hour" }, 429);
-  const premium = !!(clean.defaults && clean.defaults.trim());
+  const premium = !!(clean.defaults && clean.defaults.trim()) || !!clean.k9;
   let paid = false;
   if (premium && !(existing && JSON.parse(existing).paid)) {
     const c = await checkCode(env, code, true);
-    if (!c.ok) return json({ detail: code ? "激活码无效或次数已用完，高级功能需购买" : "预置设置和首次启动脚本是高级功能：单次 3 元或永久 88 元", need_pay: true }, 402);
+    if (!c.ok) return json({ detail: code ? "激活码无效或次数已用完，高级功能需购买" : "预置设置、首次启动脚本、插件大库是高级功能：单次 3 元或永久 88 元", need_pay: true }, 402);
     paid = true;
   }
   await env.JOBS.put(rk, String(n + 1), { expirationTtl: 3700 });
   await env.JOBS.put(`req:${hash}`, JSON.stringify(clean), { expirationTtl: 7 * 86400 });
   await env.JOBS.put(`job:${hash}`, JSON.stringify({ status: "queued", created: Date.now(), paid: paid || !!(existing && JSON.parse(existing).paid) }), { expirationTtl: 30 * 86400 });
-  try { await dispatch(env, hash); } catch (e) {
-    if (paid && code) { const raw = await env.JOBS.get(`code:${code}`); if (raw) { const c = JSON.parse(raw); if (c.credits >= 0) { c.credits += 1; await env.JOBS.put(`code:${code}`, JSON.stringify(c)); } } }
-    await env.JOBS.put(`job:${hash}`, JSON.stringify({ status: "failed", created: Date.now(), detail: "could not start build" }), { expirationTtl: 3600 });
-    return json({ detail: "could not start build", error: String(e.message) }, 500);
-  }
-  return json({ request_hash: hash, imagebuilder_status: "init", detail: "queued" }, 202);
+  const forever = code ? (await checkCode(env, code, false)).left === -1 : false;
+  const pos = await queue(env).enqueue(hash, paid || forever);
+  return json({ request_hash: hash, imagebuilder_status: "init", detail: "queued", queue_position: pos.ahead > 0 ? pos.ahead : undefined, priority: !!pos.priority }, 202);
 }
 
 async function internal(req, env, path, url) {
@@ -168,12 +165,14 @@ async function internal(req, env, path, url) {
     if (!job.created) job.created = Date.now();
     if (upd.status === "building") job.created = Date.now();
     await env.JOBS.put(`job:${m[1]}`, JSON.stringify(job), { expirationTtl: 30 * 86400 });
+    if (upd.status === "failed") await queue(env).finish(m[1]);
     return json({ ok: true });
   }
   if ((m = path.match(/^\/internal\/done\/([0-9a-f]{32})$/)) && req.method === "POST") {
     const res = await req.text();
     await env.JOBS.put(`res:${m[1]}`, res, { expirationTtl: 30 * 86400 });
     await env.JOBS.put(`job:${m[1]}`, JSON.stringify({ status: "done", created: Date.now() }), { expirationTtl: 30 * 86400 });
+    await queue(env).finish(m[1]);
     return json({ ok: true });
   }
   if (path === "/internal/setkey" && req.method === "POST") {
@@ -234,8 +233,31 @@ export default {
         const ok2 = await handleNotify(env, params);
         return new Response(ok2 ? "success" : "fail", { headers: { "content-type": "text/plain" } });
       }
+      if ((m = path.match(/^\/api\/v1\/priority\/([0-9a-f]{32})$/)) && req.method === "POST") {
+        const code = (req.headers.get("x-lukewrt-code") || "").trim().toUpperCase();
+        const cur = await queue(env).position(m[1]);
+        if (cur.state !== "queued") return json(cur);
+        if (cur.priority) return json(cur);
+        const c = await checkCode(env, code, true);
+        if (!c.ok) return json({ detail: "需要激活码", need_pay: true }, 402);
+        return json(await queue(env).promote(m[1]));
+      }
+      if (path === "/api/v1/queue") return json(await queue(env).stats());
       if (path === "/api/v1/overview" || path === "/api/v1/stats") return json({ server: "lukewrt" });
       if (path.startsWith("/dl/")) return await proxyDownloads(path.slice(3), req, ctx);
+      if ((m = path.match(/^\/k9\/(packages-\d+\.\d+\/[a-z0-9_]+\/kiddin9\/Packages)$/))) {
+        const ck = new Request("https://dl.openwrt.ai/" + m[1]);
+        let res = await caches.default.match(ck);
+        if (!res) {
+          const up = await fetch(ck.url, { cf: { cacheTtl: 3600 } });
+          if (!up.ok) return json({ detail: "not found" }, 404);
+          res = new Response(up.body, { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "public, max-age=3600" } });
+          ctx.waitUntil(caches.default.put(ck, res.clone()));
+        }
+        const out = new Response(res.body, res);
+        for (const [k, v] of Object.entries(CORS)) out.headers.set(k, v);
+        return out;
+      }
       if (path.startsWith("/store/")) {
         if (path.includes("..")) return json({ detail: "bad path" }, 400);
         const r = await serveR2(env, path.slice(1), req, { download: !path.endsWith(".json"), cache: "public, max-age=86400" });

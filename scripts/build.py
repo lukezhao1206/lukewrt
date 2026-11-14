@@ -91,7 +91,100 @@ KEYS = {
 }
 
 
-def feed_prelude(version, packages):
+def _index(url):
+    import gzip
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"user-agent": "Mozilla/5.0 lukewrt-builder"}), timeout=120) as r:
+            data = r.read()
+    except Exception as e:
+        print("index fetch failed", url, e)
+        return {}
+    if url.endswith(".gz"):
+        data = gzip.decompress(data)
+    pk = {}
+    for blk in data.decode("utf-8", "replace").split("\n\n"):
+        m = {}
+        for line in blk.splitlines():
+            if line[:1] in (" ", "\t") or ":" not in line:
+                continue
+            k, v = line.split(":", 1)
+            m[k] = v.strip()
+        if "Package" in m:
+            pk[m["Package"]] = m
+    return pk
+
+
+def _deps(m):
+    out = []
+    for d in (m.get("Depends") or "").split(","):
+        d = d.strip()
+        if not d:
+            continue
+        alts = [re.split(r"[\s(<>=]", a.strip())[0] for a in d.split("|")]
+        out.append([a for a in alts if a])
+    return out
+
+
+def fetch_k9(dest: Path, version: str, target: str, wanted):
+    """Download kiddin9 packages the user picked, plus deps official feeds lack, into dest."""
+    branch = ".".join(version.split(".")[:2])
+    if int(version.split(".")[0]) >= 25:
+        fail("插件大库目前只支持 24.10 版本")
+    rel = f"https://downloads.openwrt.org/releases/{version}"
+    with urllib.request.urlopen(f"{rel}/targets/{target}/profiles.json", timeout=60) as r:
+        arch = json.loads(r.read())["arch_packages"]
+    official = {}
+    for feed in ("base", "luci", "packages", "routing", "telephony"):
+        official.update(_index(f"{rel}/packages/{arch}/{feed}/Packages.gz"))
+    official.update(_index(f"{rel}/targets/{target}/packages/Packages.gz"))
+    provided = set(official)
+    for m in official.values():
+        for p in (m.get("Provides") or "").split(","):
+            if p.strip():
+                provided.add(re.split(r"[\s(<>=]", p.strip())[0])
+    kbase = f"https://dl.openwrt.ai/packages-{branch}/{arch}/kiddin9"
+    k9 = _index(f"{kbase}/Packages.gz")
+    if not k9:
+        fail("插件大库暂时连不上，请稍后再试")
+    kprov = {}
+    for n, m in k9.items():
+        kprov.setdefault(n, n)
+        for p in (m.get("Provides") or "").split(","):
+            if p.strip():
+                kprov.setdefault(re.split(r"[\s(<>=]", p.strip())[0], n)
+    need, todo, seen = [], list(wanted), set()
+    while todo:
+        n = todo.pop()
+        if n in seen:
+            continue
+        seen.add(n)
+        if n in provided and n not in wanted:
+            continue
+        if n in wanted and n in official:
+            continue
+        src = kprov.get(n)
+        if not src:
+            if n in provided or n not in wanted:
+                print("k9: leaving dependency to ImageBuilder:", n)
+                continue
+            fail(f"插件大库里找不到 {n}")
+        if src.startswith("kmod-"):
+            fail(f"{n} 需要第三方内核模块 {src}，和官方内核不兼容，换个插件吧")
+        need.append(src)
+        for alts in _deps(k9[src]):
+            if any(a in provided for a in alts):
+                continue
+            todo.append(next((a for a in alts if a in kprov), alts[0]))
+    for n in dict.fromkeys(need):
+        fn = k9[n]["Filename"]
+        print("k9:", fn)
+        rq = urllib.request.Request(f"{kbase}/{urllib.request.quote(fn)}", headers={"user-agent": "Mozilla/5.0 lukewrt-builder"})
+        with urllib.request.urlopen(rq, timeout=300) as r:
+            (dest / fn.split("/")[-1]).write_bytes(r.read())
+    return list(dict.fromkeys(need))
+
+
+def feed_prelude(version, packages, force_unsigned=False):
     """Shell run inside the container before `make image`."""
     names = {p.lstrip("-") for p in packages if not p.startswith("-")}
     branch = ".".join(version.split(".")[:2])
@@ -109,7 +202,7 @@ def feed_prelude(version, packages):
     for n, u in feeds:
         lines.append(f'if [ $FMT = apk ]; then echo "{u}/packages.adb" >> $RF; '
                      f'else echo "src/gz {n} {u}" >> $RF; fi')
-    if feeds:
+    if feeds or force_unsigned:
         lines.append("sed -i 's/^option check_signature/# option check_signature/' repositories.conf 2>/dev/null || true")
         for k in ("passwall_apk", "nikki_apk"):
             body = KEYS[k].replace("\n", "\\n")
@@ -152,6 +245,10 @@ def main():
     want = set(req.get("packages") or [])
     if "luci-app-openclash" in want:
         fetch_openclash(EXTRA, version)
+    k9 = []
+    if req.get("k9"):
+        status(status="building", ib_status="download_k9")
+        k9 = fetch_k9(EXTRA, version, target, list(req["k9"]))
     if req.get("defaults"):
         d = FILES / "etc/uci-defaults"
         d.mkdir(parents=True, exist_ok=True)
@@ -177,7 +274,7 @@ def main():
         fail(f"Profile {profile} not found")
     profile_packages = set(pm.group(1).split())
 
-    packages = list(req.get("packages") or [])
+    packages = list(req.get("packages") or []) + [p for p in req.get("k9") or [] if p not in (req.get("packages") or [])]
     if want & NEED_DNSMASQ_FULL and "dnsmasq-full" not in want:
         packages = [p for p in packages if p != "dnsmasq"] + ["-dnsmasq", "dnsmasq-full"]
     if req.get("diff_packages"):
@@ -187,7 +284,7 @@ def main():
     status(status="building", ib_status="building_image")
     pk = " ".join(packages)
     files_arg = "FILES=/builder/asu-files" if req.get("defaults") else ""
-    prelude = feed_prelude(version, packages)
+    prelude = feed_prelude(version, packages, force_unsigned=bool(k9) or "luci-app-openclash" in want)
     rootfs = req.get("rootfs_size_mb")
     if not rootfs and target.split("/")[0] in ("x86", "armsr", "armvirt"):
         rootfs = 512  # default 104 MB fills up with proxy plugins
