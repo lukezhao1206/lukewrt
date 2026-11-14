@@ -68,7 +68,7 @@ async function refresh() {
   const box = document.getElementById("lw-pay-state");
   if (!box) return;
   const c = getCode();
-  if (!c) { box.textContent = "免费版：每天 2 次在线定制。"; return; }
+  if (!c) { box.textContent = "免费：官方插件和科学上网插件随便选，不限次数。预置设置、首次启动脚本为高级功能。"; return; }
   try {
     const s = await api(`/api/pay/code/${encodeURIComponent(c)}`);
     box.textContent = !s.ok ? `激活码 ${c} 无效或次数已用完。` : s.left === -1 ? `永久版已激活（${c}），不限次数。` : `已激活（${c}），剩余付费次数 ${s.left}。`;
@@ -76,9 +76,9 @@ async function refresh() {
 }
 
 export function openPay() {
-  modal(`<h3>升级 LukeWrt</h3><p>免费每天 2 次，用完后：</p>
+  modal(`<h3>LukeWrt 高级功能</h3><p>预置设置（管理 IP、PPPoE、WiFi、旁路由）、首次启动脚本</p>
     <button id="lw-b1">单次 ¥3</button><button id="lw-b2">永久 ¥88</button>
-    <p style="font-size:.85em">永久版：不限次数，以后上线的高级功能（预置网络设置、插件大库、特殊机型等）一并包含。</p>
+    <p style="font-size:.85em">单次：编一次高级固件。永久：不限次数，以后上线的插件大库、配置存档一键升级、N1 等特殊机型、固件保存 30 天、优先排队都包含。</p>
     <button id="lw-x">关闭</button>`);
   document.getElementById("lw-b1").onclick = () => buy("single");
   document.getElementById("lw-b2").onclick = () => buy("forever");

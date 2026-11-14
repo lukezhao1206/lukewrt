@@ -10,7 +10,6 @@ const CORS = {
 };
 const QUEUE_TIMEOUT_MS = 60 * 60 * 1000;
 const MAX_BUILDS_PER_HOUR = 6;
-const FREE_PER_DAY = 2;
 
 function json(obj, status = 200, extra = {}) {
   return new Response(JSON.stringify(obj), { status, headers: { ...JSONH, ...CORS, ...extra } });
@@ -137,19 +136,16 @@ async function build(req, env) {
   const rk = `rate:${ip}:${Math.floor(Date.now() / 3600000)}`;
   const n = parseInt((await env.JOBS.get(rk)) || "0", 10);
   if (n >= MAX_BUILDS_PER_HOUR) return json({ detail: "too many builds, try again in an hour" }, 429);
-  const dk = `free:${ip}:${Math.floor((Date.now() + 8 * 3600e3) / 86400e3)}`;
-  const used = parseInt((await env.JOBS.get(dk)) || "0", 10);
+  const premium = !!(clean.defaults && clean.defaults.trim());
   let paid = false;
-  if (used >= FREE_PER_DAY) {
+  if (premium && !(existing && JSON.parse(existing).paid)) {
     const c = await checkCode(env, code, true);
-    if (!c.ok) return json({ detail: code ? "激活码无效或次数已用完，请购买" : `今日免费 ${FREE_PER_DAY} 次已用完，单次 3 元或永久 88 元可继续`, need_pay: true }, 402);
+    if (!c.ok) return json({ detail: code ? "激活码无效或次数已用完，高级功能需购买" : "预置设置和首次启动脚本是高级功能：单次 3 元或永久 88 元", need_pay: true }, 402);
     paid = true;
-  } else {
-    await env.JOBS.put(dk, String(used + 1), { expirationTtl: 90000 });
   }
   await env.JOBS.put(rk, String(n + 1), { expirationTtl: 3700 });
   await env.JOBS.put(`req:${hash}`, JSON.stringify(clean), { expirationTtl: 7 * 86400 });
-  await env.JOBS.put(`job:${hash}`, JSON.stringify({ status: "queued", created: Date.now() }), { expirationTtl: 30 * 86400 });
+  await env.JOBS.put(`job:${hash}`, JSON.stringify({ status: "queued", created: Date.now(), paid: paid || !!(existing && JSON.parse(existing).paid) }), { expirationTtl: 30 * 86400 });
   try { await dispatch(env, hash); } catch (e) {
     if (paid && code) { const raw = await env.JOBS.get(`code:${code}`); if (raw) { const c = JSON.parse(raw); if (c.credits >= 0) { c.credits += 1; await env.JOBS.put(`code:${code}`, JSON.stringify(c)); } } }
     await env.JOBS.put(`job:${hash}`, JSON.stringify({ status: "failed", created: Date.now(), detail: "could not start build" }), { expirationTtl: 3600 });
@@ -220,7 +216,7 @@ export default {
       if (path === "/api/v1/build" && req.method === "POST") return await build(req, env);
       let m;
       if ((m = path.match(/^\/api\/v1\/build\/([0-9a-f]{32})$/))) return await statusResponse(env, m[1]);
-      if (path === "/api/pay/plans") return json({ free_per_day: FREE_PER_DAY, plans: Object.fromEntries(Object.entries(PLANS).map(([k, v]) => [k, v.amount])) });
+      if (path === "/api/pay/plans") return json({ plans: Object.fromEntries(Object.entries(PLANS).map(([k, v]) => [k, v.amount])) });
       if (path === "/api/pay/create" && req.method === "POST") {
         let b = {}; try { b = await req.json(); } catch {}
         const ip = req.headers.get("cf-connecting-ip") || "unknown";

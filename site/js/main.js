@@ -1,5 +1,6 @@
 import { setupPicker } from "./picker.js";
 import { initPay } from "./pay.js";
+import { initPreset } from "./preset.js";
 import { $, show, showAlert } from "./utils.js";
 import { initTranslation } from "./translation.js";
 import { createAsuRequestBuilder } from "./asu.js";
@@ -161,6 +162,7 @@ async function init() {
   setupUciDefaults();
   setupPicker();
   initPay();
+  initPreset();
   updateImagesBound();
   initTranslation();
 
