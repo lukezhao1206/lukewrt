@@ -83,7 +83,7 @@ PW_PKGS = {"luci-app-passwall", "luci-i18n-passwall-zh-cn", "luci-app-passwall2"
            "shadowsocks-rust-sslocal"}
 NIKKI_PKGS = {"nikki", "luci-app-nikki", "luci-i18n-nikki-zh-cn", "luci-i18n-nikki-zh-tw",
               "mihomo-meta", "mihomo-alpha"}
-NEED_DNSMASQ_FULL = {"luci-app-passwall", "luci-app-passwall2", "luci-app-openclash"}
+NEED_DNSMASQ_FULL = {"luci-app-passwall", "luci-app-passwall2", "luci-app-openclash", "luci-app-ssr-plus", "luci-app-bypass"}
 KEYS = {
     "passwall_ipk": "untrusted comment: OpenWRT usign key of dianlujitao\nRWQKvaZaSStIhx4t06ISyV42CIpK7niKfR+Yro/WHiKLa122SEh2j3Z4\n",
     "passwall_apk": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEOmXHYLJGWFQCtbWqDqlxMvcAvkZZ\nOwy7UzzBIOxrGSAiu1blMeX96Q55Q9PH5GyjPwYiT4nrrwRgIttggGK62w==\n-----END PUBLIC KEY-----\n",
@@ -296,7 +296,7 @@ def main():
     profile_packages = set(pm.group(1).split())
 
     packages = list(req.get("packages") or []) + [p for p in req.get("k9") or [] if p not in (req.get("packages") or [])]
-    if want & NEED_DNSMASQ_FULL and "dnsmasq-full" not in want:
+    if set(packages) & NEED_DNSMASQ_FULL and "dnsmasq-full" not in packages:
         packages = [p for p in packages if p != "dnsmasq"] + ["-dnsmasq", "dnsmasq-full"]
     if req.get("diff_packages"):
         remove = (default_packages | profile_packages) - set(packages) - {"dnsmasq"}

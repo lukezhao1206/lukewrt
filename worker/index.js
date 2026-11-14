@@ -160,6 +160,12 @@ async function build(req, env, viaCode = "") {
     packages: [...new Set(b.packages || [])].sort(),
     defaults: b.defaults || "", diff_packages: !!b.diff_packages,
   };
+  // free proxy plugins that only exist in the plugin library: route them there without charging
+  const FREE_K9 = ["luci-app-ssr-plus", "luci-app-homeproxy", "luci-app-fchomo", "luci-app-bypass"];
+  if (parseInt(b.version, 10) < 25) {
+    const mv = clean.packages.filter((p) => FREE_K9.includes(p));
+    if (mv.length) { clean.packages = clean.packages.filter((p) => !mv.includes(p)); b.k9 = [...(b.k9 || []), ...mv]; }
+  }
   const k9 = [...new Set(b.k9 || [])].sort();
   if (k9.length) clean.k9 = k9;
   if (viaCode) { clean.auto_k9 = true; if (b.rootfs_size_mb) clean.rootfs_size_mb = Math.min(4096, parseInt(b.rootfs_size_mb, 10) || 0) || undefined; }
@@ -174,7 +180,7 @@ async function build(req, env, viaCode = "") {
   const rk = `rate:${ip}:${Math.floor(Date.now() / 3600000)}`;
   const n = parseInt((await env.JOBS.get(rk)) || "0", 10);
   if (n >= MAX_BUILDS_PER_HOUR) return json({ detail: "too many builds, try again in an hour" }, 429);
-  const premium = !!(clean.defaults && clean.defaults.trim()) || !!clean.k9 || !!viaCode;
+  const premium = !!(clean.defaults && clean.defaults.trim()) || (clean.k9 || []).some((p) => !FREE_K9.includes(p)) || !!viaCode;
   let paid = false;
   if (premium && !(existing && JSON.parse(existing).paid)) {
     const c = await checkCode(env, code, true);

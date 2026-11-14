@@ -10,6 +10,10 @@ const GROUPS = [
       { name: "PassWall 2", desc: "PassWall 新版，按节点分流，带 Xray 内核", pkgs: ["luci-app-passwall2", "luci-i18n-passwall2-zh-cn", "xray-core", "kmod-nft-socket", "kmod-nft-tproxy", "kmod-nft-nat"], min: 23 },
       { name: "OpenClash", desc: "Clash 订阅，内核装好后在界面里下载", pkgs: ["luci-app-openclash"], min: 23 },
       { name: "Nikki", desc: "带 mihomo 内核，比 OpenClash 轻", pkgs: ["luci-app-nikki", "luci-i18n-nikki-zh-cn", "mihomo-meta"], min: 24 },
+      { name: "SSR Plus", desc: "老牌 SSR/SS/V2Ray/Trojan 都支持（仅 24.10）", pkgs: ["luci-app-ssr-plus"], min: 24, max: 24 },
+      { name: "HomeProxy", desc: "sing-box 内核，界面简洁，ImmortalWrt 自带那款（仅 24.10）", pkgs: ["luci-app-homeproxy"], min: 24, max: 24 },
+      { name: "FCHomo", desc: "mihomo 内核，支持订阅和分流（仅 24.10）", pkgs: ["luci-app-fchomo"], min: 24, max: 24 },
+      { name: "Bypass", desc: "SSR Plus 的分支，带 SmartDNS（仅 24.10，偏老）", pkgs: ["luci-app-bypass"], min: 24, max: 24 },
       { name: "v2rayA", desc: "官方源，网页管理", pkgs: ["luci-app-v2raya", "luci-i18n-v2raya-zh-cn"], min: 23 },
       { name: "仅 sing-box 内核", desc: "官方源，自己写配置", pkgs: ["sing-box"], min: 23 },
       { name: "仅 Xray 内核", desc: "官方源，自己写配置", pkgs: ["xray-core"], min: 23 },
@@ -82,7 +86,7 @@ export function syncPicker(fresh) {
   }
   box.querySelectorAll("input[type=checkbox]").forEach((cb) => {
     const it = GROUPS[cb.dataset.g].items[cb.dataset.i];
-    const ok = mj >= (it.min || 0);
+    const ok = mj >= (it.min || 0) && mj <= (it.max || 99);
     cb.disabled = !ok;
     cb.closest("label").classList.toggle("lw-off", !ok);
     cb.checked = ok && it.pkgs.every((p) => have.has(p));
@@ -119,7 +123,7 @@ export function setupPicker() {
       const t = document.createElement("span");
       t.innerHTML = "<b></b> <small></small>";
       t.querySelector("b").textContent = it.name;
-      t.querySelector("small").textContent = (it.desc || "") + (it.min > 23 ? `（需 ${it.min}.x 及以上）` : "");
+      t.querySelector("small").textContent = (it.desc || "") + (it.min > 23 && !it.max ? `（需 ${it.min}.x 及以上）` : "");
       l.append(cb, t);
       fs.appendChild(l);
     });
