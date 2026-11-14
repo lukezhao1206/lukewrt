@@ -83,12 +83,32 @@ PW_PKGS = {"luci-app-passwall", "luci-i18n-passwall-zh-cn", "luci-app-passwall2"
            "shadowsocks-rust-sslocal"}
 NIKKI_PKGS = {"nikki", "luci-app-nikki", "luci-i18n-nikki-zh-cn", "luci-i18n-nikki-zh-tw",
               "mihomo-meta", "mihomo-alpha"}
+OWN_FEED_APPS = {"luci-app-ssr-plus", "luci-app-homeproxy", "luci-app-fchomo", "luci-app-bypass"}
 NEED_DNSMASQ_FULL = {"luci-app-passwall", "luci-app-passwall2", "luci-app-openclash", "luci-app-ssr-plus", "luci-app-bypass"}
 KEYS = {
     "passwall_ipk": "untrusted comment: OpenWRT usign key of dianlujitao\nRWQKvaZaSStIhx4t06ISyV42CIpK7niKfR+Yro/WHiKLa122SEh2j3Z4\n",
     "passwall_apk": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEOmXHYLJGWFQCtbWqDqlxMvcAvkZZ\nOwy7UzzBIOxrGSAiu1blMeX96Q55Q9PH5GyjPwYiT4nrrwRgIttggGK62w==\n-----END PUBLIC KEY-----\n",
+    "lukewrt_feed_apk": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE3X2qKuTFvO1IZPRRs/1z+wc39xiM\nnqgwUb8EtxVZVjvpvVTj3K8/Mmlw+Xn/v85VwKWy4U+vMs51uNXX5GN69A==\n-----END PUBLIC KEY-----\n",
     "nikki_apk": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETOwt83tzTFqyvjwimjuuvslR40t6\nXnROMwxZsC0iQAr2hHjuXX8qyhf5WaD2Hd897+Gc1/+4W4DMqroNp5w2Dg==\n-----END PUBLIC KEY-----\n",
 }
+
+
+def target_arch(version, target):
+    with urllib.request.urlopen(f"https://downloads.openwrt.org/releases/{version}/targets/{target}/profiles.json", timeout=60) as r:
+        return json.loads(r.read())["arch_packages"]
+
+
+def own_feed(version, target):
+    """LukeWrt's own apk feed (built with the official SDK, see .github/workflows/feed.yml).
+    Returns (url, set of package names) or (None, set()) when there is none for this arch."""
+    branch = ".".join(version.split(".")[:2])
+    url = f"{API}/packages/feed/{branch}/{target_arch(version, target)}"
+    try:
+        with urllib.request.urlopen(urllib.request.Request(f"{url}/index.json", headers={"user-agent": "lukewrt-builder"}), timeout=60) as r:
+            return url, set(json.loads(r.read()).get("packages", {}))
+    except Exception as e:
+        print("own feed unavailable", url, e)
+        return None, set()
 
 
 def _index(url):
@@ -151,7 +171,12 @@ def fetch_k9(dest: Path, version: str, target: str, wanted):
     """Download kiddin9 packages the user picked, plus deps official feeds lack, into dest."""
     branch = ".".join(version.split(".")[:2])
     if int(version.split(".")[0]) >= 25:
-        fail("插件大库目前只支持 24.10 版本")
+        url, names = own_feed(version, target)
+        missing = [n for n in wanted if n not in names]
+        if missing:
+            fail("插件大库在 25.12 暂时只有 SSR Plus、HomeProxy、FCHomo、Bypass（且仅部分架构），"
+                 f"这些用不了：{' '.join(missing)}；请改用 24.10")
+        return list(wanted)
     arch, official, provided = official_index(version, target)
     kbase = f"https://dl.openwrt.ai/packages-{branch}/{arch}/kiddin9"
     k9 = _index(f"{kbase}/Packages.gz")
@@ -195,7 +220,7 @@ def fetch_k9(dest: Path, version: str, target: str, wanted):
     return list(dict.fromkeys(need))
 
 
-def feed_prelude(version, packages, force_unsigned=False):
+def feed_prelude(version, packages, force_unsigned=False, own_url=None):
     """Shell run inside the container before `make image`."""
     names = {p.lstrip("-") for p in packages if not p.startswith("-")}
     branch = ".".join(version.split(".")[:2])
@@ -205,6 +230,8 @@ def feed_prelude(version, packages, force_unsigned=False):
                   ("passwall_packages", "passwall_luci", "passwall2")]
     if names & NIKKI_PKGS:
         feeds.append(("nikki", f"https://nikkinikki.pages.dev/openwrt-{branch}/$ARCH/nikki"))
+    if own_url:
+        feeds.append(("lukewrt", own_url))
     lines = ['set -e', 'cd /builder',
              'if [ -f repositories ]; then FMT=apk; RF=repositories; else FMT=ipk; RF=repositories.conf; fi',
              'ARCH=$(grep -m1 -oE "packages/[^/]+/base" $RF | cut -d/ -f2)',
@@ -215,7 +242,7 @@ def feed_prelude(version, packages, force_unsigned=False):
                      f'else echo "src/gz {n} {u}" >> $RF; fi')
     if feeds or force_unsigned:
         lines.append("sed -i 's/^option check_signature/# option check_signature/' repositories.conf 2>/dev/null || true")
-        for k in ("passwall_apk", "nikki_apk"):
+        for k in ("passwall_apk", "nikki_apk", "lukewrt_feed_apk"):
             body = KEYS[k].replace("\n", "\\n")
             lines.append(f'if [ $FMT = apk ]; then mkdir -p keys; printf "%b" "{body}" > keys/{k}.pem; fi')
         lines.append('cat $RF')
@@ -296,6 +323,19 @@ def main():
     profile_packages = set(pm.group(1).split())
 
     packages = list(req.get("packages") or []) + [p for p in req.get("k9") or [] if p not in (req.get("packages") or [])]
+    own_url = None
+    if int(version.split(".")[0]) >= 25:
+        url, names = own_feed(version, target)
+        mine = [p for p in packages if p in names]
+        if mine:
+            own_url = url
+            print("own feed:", url, mine)
+        lost = [p for p in packages if p in OWN_FEED_APPS and p not in names]
+        if lost:
+            fail(f"{' '.join(lost)} 在 {version} 暂时只支持部分架构（这台设备的 CPU 架构还没有），请改用 24.10")
+        if "luci-app-ssr-plus" in packages:
+            # our SDK build uses the nftables backend, whose kmods are config-selected, not package deps
+            packages += [k for k in ("kmod-nft-tproxy", "kmod-nft-socket", "kmod-nft-nat") if k not in packages]
     if set(packages) & NEED_DNSMASQ_FULL and "dnsmasq-full" not in packages:
         packages = [p for p in packages if p != "dnsmasq"] + ["-dnsmasq", "dnsmasq-full"]
     if req.get("diff_packages"):
@@ -305,7 +345,7 @@ def main():
     status(status="building", ib_status="building_image")
     pk = " ".join(packages)
     files_arg = "FILES=/builder/asu-files" if req.get("defaults") else ""
-    prelude = feed_prelude(version, packages, force_unsigned=bool(k9) or "luci-app-openclash" in want)
+    prelude = feed_prelude(version, packages, force_unsigned=bool(k9) or "luci-app-openclash" in want, own_url=own_url)
     rootfs = req.get("rootfs_size_mb")
     if not rootfs and target.split("/")[0] in ("x86", "armsr", "armvirt"):
         rootfs = 512  # default 104 MB fills up with proxy plugins
