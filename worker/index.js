@@ -1,3 +1,4 @@
+import { EmailMessage } from "cloudflare:email";
 // LukeWrt Worker: serves the firmware selector, an ASU-compatible build API,
 // and built images from R2. Builds run on GitHub Actions.
 import { BuildQueue, dispatch, MAX_RUNNING } from "./queue.js";
@@ -347,7 +348,9 @@ async function feedbackPost(req, env) {
   const rec = { t: now, content, model: String(b.model || "").slice(0, 120), contact: String(b.contact || "").slice(0, 120),
     page: String(b.page || "").slice(0, 300), ip, country: req.headers.get("cf-ipcountry") || "", ua: (req.headers.get("user-agent") || "").slice(0, 200) };
   await env.JOBS.put(`fb:${id}`, JSON.stringify(rec), { expirationTtl: 365 * 86400 });
-  return json({ ok: true });
+  let mail = "sent";
+  try { await mailFeedback(env, rec); } catch (e) { mail = "fail"; console.log("mail fail", e && e.message); }
+  return json({ ok: true, mail });
 }
 
 async function feedbackList(req, env, url) {
@@ -357,4 +360,18 @@ async function feedbackList(req, env, url) {
   const l = await env.JOBS.list({ prefix: "fb:", limit: 100 });
   const items = await Promise.all(l.keys.map(async (k) => ({ id: k.name.slice(3), ...JSON.parse((await env.JOBS.get(k.name)) || "{}") })));
   return json({ items });
+}
+
+function b64utf8(str) { const b = new TextEncoder().encode(str); let bin = ""; for (const x of b) bin += String.fromCharCode(x); return btoa(bin); }
+async function mailFeedback(env, r) {
+  if (!env.MAIL) return;
+  const from = env.MAIL_FROM || "lukewrt@lukezhao.top", to = env.MAIL_TO || "zhaolu1206@gmail.com";
+  const when = new Date(r.t).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
+  const body = `${r.content}\n\n机型/版本：${r.model || "-"}\n联系方式：${r.contact || "-"}\n时间：${when}（北京）\n来源：${r.country} ${r.ip}\n\n全部反馈：${env.PUBLIC_ORIGIN || ""}/fb.html`;
+  const subj = `LukeWrt 新反馈：${r.content.replace(/\s+/g, " ").slice(0, 30)}`;
+  const raw = [`From: LukeWrt <${from}>`, `To: ${to}`, `Subject: =?UTF-8?B?${b64utf8(subj)}?=`,
+    `Message-ID: <${Date.now()}.${Math.random().toString(36).slice(2)}@lukezhao.top>`, `Date: ${new Date(r.t).toUTCString()}`,
+    "MIME-Version: 1.0", "Content-Type: text/plain; charset=UTF-8", "Content-Transfer-Encoding: base64", "",
+    b64utf8(body).replace(/.{76}/g, "$&\r\n")].join("\r\n");
+  await env.MAIL.send(new EmailMessage(from, to, raw));
 }
