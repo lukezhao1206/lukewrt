@@ -1,0 +1,19 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex"><title>LukeWrt 反馈后台</title>
+<style>body{font-family:system-ui,sans-serif;max-width:52em;margin:1.5em auto;padding:0 1em;color:#222}
+.it{border:1px solid #ddd;border-radius:6px;padding:.7em 1em;margin:.7em 0}.m{color:#666;font-size:.85em}
+.c{white-space:pre-wrap;margin:.4em 0}input{width:16em;font-family:monospace;padding:.3em}button{padding:.3em .9em}</style></head>
+<body><h2>LukeWrt 意见反馈</h2>
+<p>站长码：<input id="k" placeholder="LW-XXXX-XXXX-XXXX"> <button id="go">查看</button> <span id="s" class="m"></span></p>
+<div id="list"></div>
+<script>
+const K="lukewrt_owner";const $=(i)=>document.getElementById(i);$("k").value=localStorage.getItem(K)||"";
+const esc=(x)=>String(x||"").replace(/[&<>"]/g,(c)=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+async function load(){const code=$("k").value.trim().toUpperCase();$("s").textContent="加载中…";
+ const r=await fetch("/api/feedback/list",{headers:{"x-lukewrt-code":code}});const j=await r.json().catch(()=>({}));
+ if(!r.ok){$("s").textContent=j.detail||"失败";return}localStorage.setItem(K,code);
+ $("s").textContent=`共 ${j.items.length} 条`;
+ $("list").innerHTML=j.items.map(x=>`<div class="it"><div class="m">${new Date(x.t).toLocaleString("zh-CN",{timeZone:"Asia/Shanghai"})} · ${esc(x.country)} · ${esc(x.ip)}</div>
+ <div class="c">${esc(x.content)}</div><div class="m">机型：${esc(x.model)||"-"} ｜ 联系：${esc(x.contact)||"-"}</div></div>`).join("")||"<p>暂无反馈</p>";}
+$("go").onclick=load;if($("k").value)load();
+</script></body></html>

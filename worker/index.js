@@ -294,6 +294,8 @@ export default {
         if (!c.ok) return json({ detail: "需要激活码", need_pay: true }, 402);
         return json(await queue(env).promote(m[1]));
       }
+      if (path === "/api/feedback" && req.method === "POST") return await feedbackPost(req, env);
+      if (path === "/api/feedback/list") return await feedbackList(req, env, url);
       if (path === "/api/v1/queue") return json(await queue(env).stats());
       if (path === "/api/v1/stats") return json({ server: "lukewrt" });
       if (path.startsWith("/dl/")) return await proxyDownloads(path.slice(3), req, ctx);
@@ -329,3 +331,30 @@ export default {
     }
   },
 };
+
+// ---- 意见反馈：存 KV fb:<倒序时间>，站长凭站长码在 /fb.html 查看 ----
+async function feedbackPost(req, env) {
+  let b = {}; try { b = await req.json(); } catch {}
+  const content = String(b.content || "").trim().slice(0, 2000);
+  if (content.length < 2) return json({ detail: "内容不能为空" }, 400);
+  const ip = req.headers.get("cf-connecting-ip") || "unknown";
+  const rk = `fbrate:${ip}:${Math.floor(Date.now() / 3600000)}`;
+  const n = parseInt((await env.JOBS.get(rk)) || "0", 10);
+  if (n >= 5) return json({ detail: "提交太频繁，请一小时后再试" }, 429);
+  await env.JOBS.put(rk, String(n + 1), { expirationTtl: 3700 });
+  const now = Date.now();
+  const id = `${String(9999999999999 - now).padStart(13, "0")}-${Math.random().toString(36).slice(2, 6)}`;
+  const rec = { t: now, content, model: String(b.model || "").slice(0, 120), contact: String(b.contact || "").slice(0, 120),
+    page: String(b.page || "").slice(0, 300), ip, country: req.headers.get("cf-ipcountry") || "", ua: (req.headers.get("user-agent") || "").slice(0, 200) };
+  await env.JOBS.put(`fb:${id}`, JSON.stringify(rec), { expirationTtl: 365 * 86400 });
+  return json({ ok: true });
+}
+
+async function feedbackList(req, env, url) {
+  const code = (req.headers.get("x-lukewrt-code") || "").trim().toUpperCase();
+  const owner = ((await env.JOBS.get("cfg:owner_code")) || "").trim().toUpperCase();
+  if (!owner || code !== owner) return json({ detail: "需要站长码" }, 403);
+  const l = await env.JOBS.list({ prefix: "fb:", limit: 100 });
+  const items = await Promise.all(l.keys.map(async (k) => ({ id: k.name.slice(3), ...JSON.parse((await env.JOBS.get(k.name)) || "{}") })));
+  return json({ items });
+}

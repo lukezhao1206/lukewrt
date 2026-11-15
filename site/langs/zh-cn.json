@@ -26,7 +26,7 @@
     "tr-build-failed": "构建失败",
     "tr-request-image": "获取映像",
     "tr-check-again": "请在 5 秒后再次检查…",
-    "tr-feedback-link": "反馈",
+    "tr-feedback-link": "意见反馈",
     "tr-dtb-help": "预编译设备树。此文件用于在 Linux 内核中定义硬件信息。",
     "tr-uboot-help": "引导程序映像。 用于启动时加载操作系统的底层软件。",
     "tr-cpximg-help": "用于在原厂固件中系统升级或内置的 cpximg 加载器。",

@@ -5,3 +5,4 @@ Disallow: /store/
 Disallow: /u/
 
 Sitemap: https://fw.luke.us.eu.org/sitemap.xml
+Disallow: /fb.html
