@@ -1,0 +1,27 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex"><title>LukeWrt 下载统计</title>
+<style>body{font-family:system-ui,sans-serif;max-width:52em;margin:1.5em auto;padding:0 1em;color:#222}
+.m{color:#666;font-size:.85em}input{width:16em;font-family:monospace;padding:.3em}button{padding:.3em .9em}
+table{border-collapse:collapse;width:100%;margin:.5em 0 1.5em}td,th{border-bottom:1px solid #eee;padding:.3em .5em;text-align:left;font-size:.9em;word-break:break-all}
+.big{font-size:2em;font-weight:600}.n{text-align:right}</style></head>
+<body><h2>LukeWrt 固件下载统计</h2>
+<p>站长码：<input id="k" placeholder="LW-XXXX-XXXX-XXXX"> <button id="go">查看</button> <span id="s" class="m"></span></p>
+<div id="out"></div><p class="m">从 2026-11-16 开始记录；同一 IP 10 分钟内重复下载同一文件只算一次。意见反馈见 <a href="/fb.html">fb.html</a>。</p>
+<script>
+const K="lukewrt_owner";const $=(i)=>document.getElementById(i);$("k").value=localStorage.getItem(K)||"";
+const esc=(x)=>String(x||"").replace(/[&<>"]/g,(c)=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const day=(t)=>new Date(t).toLocaleDateString("zh-CN",{timeZone:"Asia/Shanghai"});
+const tab=(o,h)=>`<table><tr><th>${h}</th><th class="n">次数</th></tr>`+Object.entries(o).map(([a,b])=>`<tr><td>${esc(a)}</td><td class="n">${b}</td></tr>`).join("")+"</table>";
+const cnt=(a,f)=>a.reduce((o,x)=>(o[f(x)]=(o[f(x)]||0)+1,o),{});
+const sortv=(o)=>Object.fromEntries(Object.entries(o).sort((a,b)=>b[1]-a[1]).slice(0,30));
+async function load(){const code=$("k").value.trim().toUpperCase();$("s").textContent="加载中…";
+ const r=await fetch("/api/dlstats",{headers:{"x-lukewrt-code":code}});const j=await r.json().catch(()=>({}));
+ if(!r.ok){$("s").textContent=j.detail||"失败";return}localStorage.setItem(K,code);$("s").textContent="";
+ const a=j.items,now=Date.now(),d1=a.filter(x=>now-x.t<864e5).length,d7=a.filter(x=>now-x.t<7*864e5).length;
+ const model=(f)=>f.replace(/^openwrt-[\d.\-rc]+-/,"").replace(/-(squashfs|ext4|initramfs).*$/,"");
+ $("out").innerHTML=`<p><span class="big">${a.length}</span> 次下载 ｜ 24 小时 ${d1} ｜ 7 天 ${d7}</p>`+
+ "<h3>按日期</h3>"+tab(cnt(a,x=>day(x.t)),"日期")+"<h3>按机型</h3>"+tab(sortv(cnt(a,x=>model(x.f))),"机型")+
+ "<h3>按地区</h3>"+tab(sortv(cnt(a,x=>x.c||"?")),"国家/地区")+
+ "<h3>最近 50 次</h3><table><tr><th>时间（北京）</th><th>文件</th><th>地区</th></tr>"+a.slice(0,50).map(x=>`<tr><td>${new Date(x.t).toLocaleString("zh-CN",{timeZone:"Asia/Shanghai"})}</td><td>${esc(x.f)}</td><td>${esc(x.c)}</td></tr>`).join("")+"</table>";}
+$("go").onclick=load;if($("k").value)load();
+</script></body></html>

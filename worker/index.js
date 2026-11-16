@@ -297,6 +297,7 @@ export default {
       }
       if (path === "/api/feedback" && req.method === "POST") return await feedbackPost(req, env);
       if (path === "/api/feedback/list") return await feedbackList(req, env, url);
+      if (path === "/api/dlstats") return await dlStats(req, env);
       if (path === "/api/v1/queue") return json(await queue(env).stats());
       if (path === "/api/v1/stats") return json({ server: "lukewrt" });
       if (path.startsWith("/dl/")) return await proxyDownloads(path.slice(3), req, ctx);
@@ -316,6 +317,10 @@ export default {
       if (path.startsWith("/store/")) {
         if (path.includes("..")) return json({ detail: "bad path" }, 400);
         const r = await serveR2(env, path.slice(1), req, { download: !path.endsWith(".json"), cache: "public, max-age=86400" });
+        if (r && req.method === "GET" && !path.endsWith(".json") && (r.status === 200 || r.status === 206)) {
+          const rg = req.headers.get("range") || "";
+          if (!rg || /^bytes=0-/.test(rg)) ctx.waitUntil(logDownload(env, req, path));
+        }
         return r || json({ detail: "not found" }, 404);
       }
       if (path.startsWith("/packages/")) {
@@ -374,4 +379,28 @@ async function mailFeedback(env, r) {
     "MIME-Version: 1.0", "Content-Type: text/plain; charset=UTF-8", "Content-Transfer-Encoding: base64", "",
     b64utf8(body).replace(/.{76}/g, "$&\r\n")].join("\r\n");
   await env.MAIL.send(new EmailMessage(from, to, raw));
+}
+
+async function logDownload(env, req, path) {
+  try {
+    const t = Date.now(), f = path.split("/").pop();
+    const ip = req.headers.get("cf-connecting-ip") || "";
+    const dk = `dldup:${ip}:${f}:${Math.floor(t / 600000)}`;
+    if (await env.JOBS.get(dk)) return;
+    await env.JOBS.put(dk, "1", { expirationTtl: 900 });
+    const id = String(9e15 - t).padStart(16, "0") + Math.random().toString(36).slice(2, 6);
+    await env.JOBS.put(`dlog:${id}`, "", { expirationTtl: 400 * 86400, metadata: { t, f: f.slice(0, 200), c: req.headers.get("cf-ipcountry") || "" } });
+  } catch {}
+}
+async function dlStats(req, env) {
+  const code = (req.headers.get("x-lukewrt-code") || "").trim().toUpperCase();
+  const owner = ((await env.JOBS.get("cfg:owner_code")) || "").trim().toUpperCase();
+  if (!owner || code !== owner) return json({ detail: "需要站长码" }, 403);
+  const items = []; let cursor;
+  do {
+    const l = await env.JOBS.list({ prefix: "dlog:", limit: 1000, cursor });
+    for (const k of l.keys) if (k.metadata) items.push(k.metadata);
+    cursor = l.list_complete ? null : l.cursor;
+  } while (cursor && items.length < 20000);
+  return json({ items });
 }
