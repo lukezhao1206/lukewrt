@@ -3,7 +3,7 @@ import { EmailMessage } from "cloudflare:email";
 // and built images from R2. Builds run on GitHub Actions.
 import { BuildQueue, dispatch, MAX_RUNNING } from "./queue.js";
 export { BuildQueue };
-import { createOrder, orderStatus, handleNotify, checkCode, selfTest, PLANS } from "./pay.js";
+import { createOrder, orderStatus, handleNotify, checkCode, holdCode, settleHold, selfTest, PLANS } from "./pay.js";
 const DL = "https://downloads.openwrt.org";
 const JSONH = { "content-type": "application/json; charset=utf-8" };
 const CORS = {
@@ -105,6 +105,7 @@ async function statusResponse(env, hash) {
   }
   if (Date.now() - job.created > QUEUE_TIMEOUT_MS) {
     try { await queue(env).finish(hash); } catch {}
+    try { await settleHold(env, hash, false); } catch {}
     job.status = "failed"; job.detail = "build timed out";
     await env.JOBS.put(`job:${hash}`, JSON.stringify(job), { expirationTtl: 86400 });
     return json({ detail: job.detail, request_hash: hash }, 500);
@@ -184,8 +185,8 @@ async function build(req, env, viaCode = "") {
     return json({ detail: "这个小时编译次数用完了（每小时 6 次），一小时后再试；永久版不限" }, 429);
   const premium = !!(clean.defaults && clean.defaults.trim()) || (clean.k9 || []).some((p) => !FREE_K9.includes(p)) || !!viaCode;
   let paid = false;
-  if (premium && !(existing && JSON.parse(existing).paid)) {
-    const c = await checkCode(env, code, true);
+  if (premium) {
+    const c = await holdCode(env, code, hash);
     if (!c.ok) return json({ detail: code ? "激活码无效或次数已用完，高级功能需购买" : "预置设置、首次启动脚本、插件大库是高级功能：单次 3 元或永久 88 元", need_pay: true }, 402);
     paid = true;
   }
@@ -212,6 +213,7 @@ async function internal(req, env, path, url) {
     if (upd.status === "building") job.created = Date.now();
     await env.JOBS.put(`job:${m[1]}`, JSON.stringify(job), { expirationTtl: 30 * 86400 });
     if (upd.status === "failed") await queue(env).finish(m[1]);
+    if (upd.status === "failed") await settleHold(env, m[1], false);
     return json({ ok: true });
   }
   if ((m = path.match(/^\/internal\/done\/([0-9a-f]{32})$/)) && req.method === "POST") {
@@ -219,6 +221,7 @@ async function internal(req, env, path, url) {
     await env.JOBS.put(`res:${m[1]}`, res, { expirationTtl: 30 * 86400 });
     await env.JOBS.put(`job:${m[1]}`, JSON.stringify({ status: "done", created: Date.now() }), { expirationTtl: 30 * 86400 });
     await queue(env).finish(m[1]);
+    await settleHold(env, m[1], true);
     return json({ ok: true });
   }
   if (path === "/internal/setkey" && req.method === "POST") {
@@ -291,7 +294,7 @@ export default {
         const cur = await queue(env).position(m[1]);
         if (cur.state !== "queued") return json(cur);
         if (cur.priority) return json(cur);
-        const c = await checkCode(env, code, true);
+        const c = await holdCode(env, code, m[1]);
         if (!c.ok) return json({ detail: "需要激活码", need_pay: true }, 402);
         return json(await queue(env).promote(m[1]));
       }

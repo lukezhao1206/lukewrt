@@ -129,3 +129,31 @@ export async function selfTest(env) {
   const r = await call(env, "alipay.trade.query", { out_trade_no: "LWSELFTEST" + Date.now() });
   return { code: r && r.code, sub_code: r && r.sub_code, msg: r && (r.sub_msg || r.msg) };
 }
+
+// Reserve one credit for build `hash` (charged only when the build succeeds).
+export async function holdCode(env, code, hash) {
+  const c = await checkCode(env, code, false);
+  if (!c.ok) return c;
+  if (c.left === -1) return c;
+  if ((await env.JOBS.get(`hold:${hash}`)) === code) return { ...c, held: true };
+  const l = await env.JOBS.list({ prefix: `holdc:${code}:` });
+  const left = c.left - l.keys.length;
+  if (left <= 0) return { ok: false, plan: c.plan, left: 0, pending: l.keys.length };
+  await env.JOBS.put(`hold:${hash}`, code, { expirationTtl: 2 * 86400 });
+  await env.JOBS.put(`holdc:${code}:${hash}`, "1", { expirationTtl: 2 * 86400 });
+  return { ok: true, plan: c.plan, left: left - 1, held: true };
+}
+// success=true: spend the held credit once; false: release it.
+export async function settleHold(env, hash, success) {
+  const code = await env.JOBS.get(`hold:${hash}`);
+  if (!code) return;
+  await env.JOBS.delete(`hold:${hash}`);
+  await env.JOBS.delete(`holdc:${code}:${hash}`);
+  if (!success) return;
+  if (await env.JOBS.get(`charged:${hash}:${code}`)) return;
+  await env.JOBS.put(`charged:${hash}:${code}`, "1", { expirationTtl: 30 * 86400 });
+  const raw = await env.JOBS.get(`code:${code}`);
+  if (!raw) return;
+  const c = JSON.parse(raw);
+  if (c.credits > 0) { c.credits -= 1; await env.JOBS.put(`code:${code}`, JSON.stringify(c)); }
+}
