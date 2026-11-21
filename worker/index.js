@@ -3,6 +3,7 @@ import { EmailMessage } from "cloudflare:email";
 // and built images from R2. Builds run on GitHub Actions.
 import { BuildQueue, dispatch, MAX_RUNNING } from "./queue.js";
 export { BuildQueue };
+import { tgHook, tgNotify, tgPaid, tgSetToken } from "./tg.js";
 import { createOrder, orderStatus, handleNotify, checkCode, holdCode, settleHold, selfTest, PLANS } from "./pay.js";
 const DL = "https://downloads.openwrt.org";
 const JSONH = { "content-type": "application/json; charset=utf-8" };
@@ -106,6 +107,7 @@ async function statusResponse(env, hash) {
   if (Date.now() - job.created > QUEUE_TIMEOUT_MS) {
     try { await queue(env).finish(hash); } catch {}
     try { await settleHold(env, hash, false); } catch {}
+    try { await tgNotify(env, hash, false, "build timed out"); } catch {}
     job.status = "failed"; job.detail = "build timed out";
     await env.JOBS.put(`job:${hash}`, JSON.stringify(job), { expirationTtl: 86400 });
     return json({ detail: job.detail, request_hash: hash }, 500);
@@ -213,7 +215,7 @@ async function internal(req, env, path, url) {
     if (upd.status === "building") job.created = Date.now();
     await env.JOBS.put(`job:${m[1]}`, JSON.stringify(job), { expirationTtl: 30 * 86400 });
     if (upd.status === "failed") await queue(env).finish(m[1]);
-    if (upd.status === "failed") await settleHold(env, m[1], false);
+    if (upd.status === "failed") { await settleHold(env, m[1], false); await tgNotify(env, m[1], false, upd.detail || ""); }
     return json({ ok: true });
   }
   if ((m = path.match(/^\/internal\/done\/([0-9a-f]{32})$/)) && req.method === "POST") {
@@ -222,6 +224,7 @@ async function internal(req, env, path, url) {
     await env.JOBS.put(`job:${m[1]}`, JSON.stringify({ status: "done", created: Date.now() }), { expirationTtl: 30 * 86400 });
     await queue(env).finish(m[1]);
     await settleHold(env, m[1], true);
+    await tgNotify(env, m[1], true);
     return json({ ok: true });
   }
   if (path === "/internal/setkey" && req.method === "POST") {
@@ -264,6 +267,9 @@ export default {
     if ((m = path.match(/^\/u\/(LW-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}-[A-Za-z0-9]{4})(\/.*)$/))) { viaCode = m[1].toUpperCase(); path = m[2]; }
     try {
       if (path.startsWith("/internal/")) return await internal(req, env, path, url);
+      if (path === "/tg/settoken") return await tgSetToken(req, env);
+      if (path.startsWith("/tg/hook") && req.method === "POST") TGENV.env = env;
+      if (path.startsWith("/tg/hook") && req.method === "POST") return await tgHook(req, env, ctx, path.slice(9), TGAPI);
       if (path === "/api/v1/build" && req.method === "POST") return await build(req, env, viaCode);
       if (path === "/api/v1/overview") return json(await overview(), 200, { "cache-control": "public, max-age=600" });
       if ((m = path.match(/^\/api\/v1\/revision\/([0-9.a-zA-Z\-]+)\/([a-z0-9]+\/[a-z0-9_\-]+)$/))) {
@@ -287,6 +293,7 @@ export default {
       if (path === "/api/pay/notify" && req.method === "POST") {
         const params = Object.fromEntries(new URLSearchParams(await req.text()));
         const ok2 = await handleNotify(env, params);
+        if (ok2 && params.out_trade_no) await tgPaid(env, params.out_trade_no);
         return new Response(ok2 ? "success" : "fail", { headers: { "content-type": "text/plain" } });
       }
       if ((m = path.match(/^\/api\/v1\/priority\/([0-9a-f]{32})$/)) && req.method === "POST") {
@@ -407,3 +414,13 @@ async function dlStats(req, env) {
   } while (cursor && items.length < 20000);
   return json({ items });
 }
+
+async function tgPriority(hash, code) {
+  const cur = await queue(TGENV.env).position(hash);
+  if (cur.state !== "queued" || cur.priority) return cur;
+  const c = await holdCode(TGENV.env, code, hash);
+  if (!c.ok) return { need_pay: true };
+  return await queue(TGENV.env).promote(hash);
+}
+const TGENV = {};
+const TGAPI = { build, statusResponse, feedbackPost, overview, upstreamJson, priority: tgPriority };
